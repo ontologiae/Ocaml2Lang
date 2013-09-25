@@ -65,10 +65,11 @@ type _ expre =
   | Float               : float   -> float expre
   | Char                : char    -> char expre
   | String              : string  -> string expre
-  | Sequence            : 'a expre * 'b expre -> ( 'a * 'b ) expre
-  | StringConcat        : 'a expre * 'b expre -> ( 'a * 'b ) expre
-  | ListConcat          : 'a expre * 'a expre -> ( 'a * 'a ) expre
-  | ListAddElem         : 'a expre * 'b expre -> ( 'a * 'b ) expre                             (*Beau trou de typage le 2ème argument est une liste*)
+  | Sequence            : _ expre * _ expre -> ( _ * _ ) expre
+  | Sequence2           : _ expre list       -> ( _ list ) expre
+  | StringConcat        : _ expre * _ expre -> ( _ * _ ) expre                                 (*Trou de typage, mais à part des stringconstant, on est sûr de rien*)
+  | ListConcat          : _ expre * _ expre -> ( _ * _ ) expre
+  | ListAddElem         : _ expre * _ expre -> ( _ * _ ) expre                             (*Beau trou de typage le 2ème argument est une liste*)
   | Times               : int expre * int expre -> ( int * int ) expre 		               (* Product [e1 * e2] *)
   | Plus                : int expre * int expre -> ( int * int ) expre   		       (* Sum [e1 + e2] *)
   | Minus               : int expre * int expre -> ( int * int ) expre  		       (* Difference [e1 - e2] *)
@@ -76,11 +77,13 @@ type _ expre =
   | Less                : int expre * int expre -> ( int * int ) expre    		       (* Integer comparison [e1 < e2] *)
  (* | TypeConstr          : 
   | Match               : name *) 
-  | If                  : bool expre * 'a expre * 'b expre -> (bool * 'a * 'b) expre	       (* Conditional [if e1 then e2 else e3] *)
+  | Let                 : name * _ expre -> (name * _) expre 
+  | If                  : bool expre * _ expre * _ expre -> (bool * _ * _) expre	       (* Conditional [if e1 then e2 else e3] *)
   | Fun                 : name * name * ty * ty * 'a expre -> (name * name * ty * ty * 'a) expre (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                                                                   *)
-  | Apply               : 'a expre * 'b expre -> ( 'a * 'b ) expre              
+  | Apply               : 'a expre * 'b expre -> ( 'a * 'b ) expre
+  | Pas_Encore_gere       
 
 
 
@@ -104,12 +107,17 @@ let rec lident_of_path path =
 
 let p = print_endline;;
 
-let pas_gere() = failwith "Item de l'AST non géré pour le moment"
+let pas_gere() = let _ = p "Item de l'AST non géré pour le moment" in Pas_Encore_gere
 
 
 let rec to_object_language str =
   List.map untype_structure_item str.str_items
 
+and expre_list_to_sequence lst =
+        match lst with
+        | t::[] -> t
+        (*| t::q::[]  -> Sequence (t, q)*)
+        | t::q      -> Sequence (t, expre_list_to_sequence q)
 and untype_structure_item item =
   let desc =
     match item.str_desc with
@@ -118,8 +126,17 @@ and untype_structure_item item =
 
       (** correspond à un let*)
     | Tstr_value (Nonrecursive, list)  -> let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
-                                          let on_garde =  List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list in pas_gere()
-    | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive pas obligatoirement une fonction") in
+                                          let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
+                                          let pats     = L.map (fun (pat, exp) -> pat) list in
+                                          let expressions = L.map (fun (pat, exp) -> untype_expression exp) list in
+                                          (match pats with 
+                                          | [{pat_desc  = Tpat_var ({Ident.stamp = 1008; name = nom_var; flags = 0},_);
+                                          (*TODO : récup pat_type*)
+                                                _ 
+                                          }] -> Let (nom_var, expre_list_to_sequence expressions)
+                                          | _ -> Pas_Encore_gere)
+                                          
+    | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive  obligatoirement une fonction") in
                                       let on_garde = (List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list) in pas_gere()
 
 
@@ -161,12 +178,15 @@ pas_gere()
  pas_gere()
     | Tstr_include (mexpr, _) -> let on_garde =(untype_module_expr mexpr) in pas_gere()
   in
-  let on_garde = desc, item.str_loc in p "structure_item"
+  let on_garde = desc, item.str_loc in
+  let _ = p "structure_item" in
+  desc
 
 and untype_value_description v =
   
         let on_garde = v.val_prim, (untype_core_type v.val_desc), v.val_loc in
-  p "value_description "
+        (*p "value_description "*)
+        Pas_Encore_gere
 
 
 and untype_type_declaration decl =
@@ -196,7 +216,7 @@ and untype_type_declaration decl =
 
     decl.typ_variance,
     decl.typ_loc
-        in p "type_declaration"
+        in (*p "type_declaration"*) Pas_Encore_gere
 
 and untype_exception_declaration decl =
   List.map untype_core_type decl.exn_params
@@ -213,7 +233,7 @@ and untype_pattern pat =
                     let on_garde =  (untype_pattern { pat with pat_extra=rem }, untype_core_type ct) in pas_gere()
     | _ ->
     match pat.pat_desc with
-      Tpat_any -> Ppat_any
+      Tpat_any -> Pas_Encore_gere
     | Tpat_var (id, name) ->
         begin
           match (Ident.name id).[0] with
@@ -236,7 +256,7 @@ and untype_pattern pat =
     | Tpat_variant (label, pato, _) ->
                     let on_garde = (label, match pato with
             None -> None
-          | Some pat  -> let on_garde = (untype_pattern pat) in pas_gere()) in pas_gere()
+          | Some pat  -> let on_garde = (untype_pattern pat) in Some on_garde) in pas_gere()
     | Tpat_record (list, closed) ->
                     let on_garde = (List.map (fun (lid, _, pat) -> lid, untype_pattern pat) list, closed) in pas_gere()
     | Tpat_array list -> let on_garde = (List.map untype_pattern list) in pas_gere()
@@ -245,7 +265,7 @@ and untype_pattern pat =
   in
   let on_garde = desc, pat.pat_loc in p "pattern"
 
-and option f x = match x with None -> None | Some e  -> let on_garde = (f e) in pas_gere()
+and option f x = match x with None -> None | Some e  -> let on_garde = (f e) in Some on_garde
 
 
 and untype_extra (extra, loc) sexp =
@@ -293,12 +313,12 @@ and untype_expression exp =
               untype_pattern pat, untype_expression exp) list) in pas_gere()
     | Texp_tuple list  -> let on_garde = (List.map untype_expression list) in pas_gere()
     | Texp_construct ( lid, _, args, explicit_arity) ->
-        let on_garde = (lid,
-          (match args with
-              [] -> None
-          | [ arg ]  -> let on_garde = (untype_expression arg) in pas_gere()
-          | args -> let on_garde = (List.map untype_expression args), exp.exp_loc in Some on_garde
-          ), explicit_arity)  in pas_gere()
+                    let on_garde = (lid, (match args with
+                                          | [] -> None
+                                          | [ arg ] -> Some (untype_expression arg)
+                                          (*TODO : HACK !!*)
+                                          | t::args -> let on_garde = List.map untype_expression args in let on_garde2 = exp.exp_loc in Some (untype_expression t))
+                    , explicit_arity) in pas_gere()
     | Texp_variant (label, expo) ->
         let on_garde = (label, match expo with
             None -> None
@@ -344,7 +364,8 @@ and untype_expression exp =
     | Texp_object (cl, _)  -> let on_garde = (untype_class_structure cl) in pas_gere()
     | Texp_pack (mexpr)  -> let on_garde = (untype_module_expr mexpr) in pas_gere()
   in
-  List.fold_right untype_extra exp.exp_extra ()
+  Pas_Encore_gere
+  (*List.fold_right untype_extra exp.exp_extra Pas_Encore_gere*)
    (* { pexp_loc = exp.exp_loc;
       pexp_desc = desc }*)
 and untype_package_type pack =
@@ -485,8 +506,8 @@ and untype_class_type_field ctf =
 
 and untype_core_type ct =
   let desc = match ct.ctyp_desc with
-      Ttyp_any -> Ptyp_any
-    | Ttyp_var s -> Ptyp_var s
+      Ttyp_any -> pas_gere()
+    | Ttyp_var s ->  pas_gere()
     | Ttyp_arrow (label, ct1, ct2)  -> let on_garde = (label, untype_core_type ct1, untype_core_type ct2) in pas_gere()
     | Ttyp_tuple list  -> let on_garde = (List.map untype_core_type list) in pas_gere()
     | Ttyp_constr (_path, lid, list) -> let on_garde = (lid,List.map untype_core_type list) in pas_gere()

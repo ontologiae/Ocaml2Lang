@@ -104,7 +104,7 @@ let rec lident_of_path path =
 
 let p = print_endline;;
 
-let pas_gere() = (*p "Item de l'AST non géré pour le moment"*) Pstr_class_type []
+let pas_gere() = failwith "Item de l'AST non géré pour le moment"
 
 
 let rec to_object_language str =
@@ -135,7 +135,7 @@ and untype_structure_item item =
               name, untype_module_type mtype,
               untype_module_expr mexpr) list) in pas_gere()
     | Tstr_modtype (id, name, mtype) -> let on_garde = (name, untype_module_type mtype) in pas_gere()
-    | Tstr_open (path, lid) ->  let on_garde = (path, lid) in pas_gere()
+    | Tstr_open (ov, path, lid) ->  let on_garde = (ov, path, lid) in pas_gere()
     | Tstr_class list -> let on_garde = (List.map (fun (ci, _, _) ->
               { pci_virt = ci.ci_virt;
                 pci_params = ci.ci_params;
@@ -192,7 +192,7 @@ and untype_type_declaration decl =
     decl.typ_private,
      (match decl.typ_manifest with
         None -> None
-      | Some ct  -> let on_garde = (untype_core_type ct) in pas_gere()),
+      | Some ct  -> let on_garde = (untype_core_type ct) in Some on_garde),
 
     decl.typ_variance,
     decl.typ_loc
@@ -226,21 +226,19 @@ and untype_pattern pat =
                     let on_garde = (untype_pattern pat, name) in pas_gere()
     | Tpat_constant cst ->  pas_gere()
     | Tpat_tuple list ->  let on_garde = (List.map untype_pattern list) in  p "tuple"; pas_gere()
-    | Tpat_construct (path, lid, _, args, explicit_arity) ->
+    | Tpat_construct (lid, _, args, explicit_arity) ->
                     let on_garde = (lid,
           (match args with
               [] -> None
-            | args -> Some
-                  { ppat_desc = Ppat_tuple (List.map untype_pattern args);
-                  ppat_loc = pat.pat_loc; }
-          ), explicit_arity) in pas_gere()
+            | args -> let on_garde = (List.map untype_pattern args), pat.pat_loc in Some on_garde
+          ), 
+          explicit_arity) in pas_gere()
     | Tpat_variant (label, pato, _) ->
                     let on_garde = (label, match pato with
             None -> None
           | Some pat  -> let on_garde = (untype_pattern pat) in pas_gere()) in pas_gere()
     | Tpat_record (list, closed) ->
-                    let on_garde = (List.map (fun (path, lid, _, pat) ->
-              lid, untype_pattern pat) list, closed) in pas_gere()
+                    let on_garde = (List.map (fun (lid, _, pat) -> lid, untype_pattern pat) list, closed) in pas_gere()
     | Tpat_array list -> let on_garde = (List.map untype_pattern list) in pas_gere()
     | Tpat_or (p1, p2, _) -> let on_garde = (untype_pattern p1, untype_pattern p2) in pas_gere()
     | Tpat_lazy p -> let on_garde = (untype_pattern p) in pas_gere()
@@ -256,7 +254,7 @@ and untype_extra (extra, loc) sexp =
     | Texp_constraint (cty1, cty2) -> let on_garde =   (sexp,
                          option untype_core_type cty1,
                          option untype_core_type cty2) in  pas_gere()
-    | Texp_open (_path, lid, _) -> let on_garde =  ( lid, sexp) in  pas_gere()
+    | Texp_open (ovf, _path, lid, _) -> let on_garde =  (ovf, lid, sexp) in  pas_gere()
     | Texp_poly cto -> let on_garde =  (sexp, option untype_core_type cto) in  pas_gere()
     | Texp_newtype s -> let on_garde =  (s, sexp) in  pas_gere()
   in
@@ -294,28 +292,24 @@ and untype_expression exp =
           List.map (fun (pat, exp) ->
               untype_pattern pat, untype_expression exp) list) in pas_gere()
     | Texp_tuple list  -> let on_garde = (List.map untype_expression list) in pas_gere()
-    | Texp_construct (path, lid, _, args, explicit_arity) ->
+    | Texp_construct ( lid, _, args, explicit_arity) ->
         let on_garde = (lid,
           (match args with
               [] -> None
           | [ arg ]  -> let on_garde = (untype_expression arg) in pas_gere()
-          | args -> Some
-            { pexp_desc = Pexp_tuple (List.map untype_expression args);
-              pexp_loc = exp.exp_loc; }
+          | args -> let on_garde = (List.map untype_expression args), exp.exp_loc in Some on_garde
           ), explicit_arity)  in pas_gere()
     | Texp_variant (label, expo) ->
         let on_garde = (label, match expo with
             None -> None
           | Some exp  -> let on_garde = (untype_expression exp) in None)  in pas_gere()
     | Texp_record (list, expo) ->
-        let on_garde = (List.map (fun (path, lid, _, exp) ->
-              lid, untype_expression exp
-          ) list,
+        let on_garde = (List.map (fun (lid, _, exp) -> lid, untype_expression exp ) list,
           match expo with
             None -> None
-          | Some exp  -> let on_garde = (untype_expression exp) in None) in pas_gere()
-    | Texp_field (exp, path, lid, label)  -> let on_garde = (untype_expression exp, lid) in pas_gere()
-    | Texp_setfield (exp1, path, lid, label, exp2) ->
+          | Some exp -> Some (untype_expression exp)) in pas_gere()
+    | Texp_field (exp, lid, label)  -> let on_garde = (untype_expression exp, lid) in pas_gere()
+    | Texp_setfield (exp1, lid, label, exp2) ->
         let on_garde = (untype_expression exp1, lid,
           untype_expression exp2)  in pas_gere()
     | Texp_array list  -> let on_garde = (List.map untype_expression list) in pas_gere()
@@ -350,9 +344,9 @@ and untype_expression exp =
     | Texp_object (cl, _)  -> let on_garde = (untype_class_structure cl) in pas_gere()
     | Texp_pack (mexpr)  -> let on_garde = (untype_module_expr mexpr) in pas_gere()
   in
-  List.fold_right untype_extra exp.exp_extra
-    { pexp_loc = exp.exp_loc;
-      pexp_desc = desc }
+  List.fold_right untype_extra exp.exp_extra ()
+   (* { pexp_loc = exp.exp_loc;
+      pexp_desc = desc }*)
 and untype_package_type pack =
   (pack.pack_txt,
     List.map (fun (s, ct) ->
@@ -379,30 +373,19 @@ and untype_signature_item item =
     | Tsig_module (id, name, mtype) -> let on_garde =  (name, untype_module_type mtype) in pas_gere()
     | Tsig_recmodule list -> let on_garde = (List.map (fun (id, name, mtype) ->  name, untype_module_type mtype) list) in pas_gere()
     | Tsig_modtype (id, name, mdecl) -> let on_garde =  (name, untype_modtype_declaration mdecl) in pas_gere()
-    | Tsig_open (path, lid) -> pas_gere()
+    | Tsig_open (ovf, path, lid) -> pas_gere()
     | Tsig_include (mty, lid) -> let on_garde =  (untype_module_type mty) in pas_gere()
     | Tsig_class list -> let on_garde =  (List.map untype_class_description list) in pas_gere()
     | Tsig_class_type list -> let on_garde =  (List.map untype_class_type_declaration list) in pas_gere()
   in
-  let on_garde = desc, item.sig_loc in
+  let on_garde = desc, item.sig_loc in p "signature_item"
 
 
 and untype_class_description cd =
-  let on_garde = cd.ci_virt, cd.ci_params, cd.ci_id_name, 
-    pci_expr = untype_class_type cd.ci_expr;
-    pci_variance = cd.ci_variance;
-    pci_loc = cd.ci_loc;
-  }
+  let on_garde = cd.ci_virt, cd.ci_params, cd.ci_id_name, untype_class_type cd.ci_expr, cd.ci_variance,  cd.ci_loc in p "class_description"
 
 and untype_class_type_declaration cd =
-  {
-    pci_virt = cd.ci_virt;
-    pci_params = cd.ci_params;
-    pci_name = cd.ci_id_name;
-    pci_expr = untype_class_type cd.ci_expr;
-    pci_variance = cd.ci_variance;
-    pci_loc = cd.ci_loc;
-  }
+  let on_garde =  cd.ci_virt, cd.ci_params, cd.ci_id_name, untype_class_type cd.ci_expr, cd.ci_variance, cd.ci_loc in p "class_type_declaration"
 
 
 and untype_module_type mty =
@@ -417,10 +400,7 @@ and untype_module_type mty =
           ) list) in pas_gere()
     | Tmty_typeof mexpr -> let on_garde = (untype_module_expr mexpr) in pas_gere()
   in
-  {
-    pmty_desc = desc;
-    pmty_loc = mty.mty_loc;
-  }
+  let on_garde =  desc, mty.mty_loc in p "module_type"
 
 
 
@@ -447,10 +427,7 @@ and untype_module_expr mexpr =
         (* TODO , untype_package_type pack) *)
 
   in
- {
-    pmod_desc = desc;
-    pmod_loc = mexpr.mod_loc;
-  }
+let on_garde = desc, mexpr.mod_loc in p "module_expr"
 
 and untype_class_expr cexpr =
   let desc = match cexpr.cl_desc with
@@ -479,10 +456,7 @@ and untype_class_expr cexpr =
 
     | Tcl_ident _ -> assert false
     | Tcl_constraint (_, None, _, _, _) -> assert false
-  in
-   { pcl_desc = desc;
-    pcl_loc = cexpr.cl_loc;
-  }
+  in let on_garde = desc, cexpr.cl_loc in p "class_expr"
 
 
 
@@ -492,16 +466,11 @@ and untype_class_type ct =
     | Tcty_constr (_path, lid, list)  -> let on_garde = (lid, List.map untype_core_type list) in pas_gere()
     | Tcty_fun (label, ct, cl)  -> let on_garde = (label, untype_core_type ct, untype_class_type cl) in pas_gere()
   in
-  { pcty_desc = desc;
-    pcty_loc = ct.cltyp_loc;
-   }
+   let on_garde = desc, ct.cltyp_loc in p "class_type"
 
 and untype_class_signature cs =
-  {
-    pcsig_self = untype_core_type cs.csig_self;
-    pcsig_fields = List.map untype_class_type_field cs.csig_fields;
-    pcsig_loc = cs.csig_loc;
-  }
+  let on_garde = untype_core_type cs.csig_self, List.map untype_class_type_field cs.csig_fields, cs.csig_loc in
+  p "class_signature"
 
 and untype_class_type_field ctf =
   let desc = match ctf.ctf_desc with
@@ -511,10 +480,8 @@ and untype_class_type_field ctf =
     | Tctf_virt  (s, priv, ct) ->   let on_garde = (s, priv, untype_core_type ct) in pas_gere()
     | Tctf_cstr  (ct1, ct2)  -> let on_garde = (untype_core_type ct1, untype_core_type ct2) in pas_gere()
   in
-  {
-    pctf_desc = desc;
-    pctf_loc = ctf.ctf_loc;
-  }
+  let on_garde = desc, ctf.ctf_loc in p "class_type_field"
+  
 
 and untype_core_type ct =
   let desc = match ct.ctyp_desc with
@@ -530,24 +497,21 @@ and untype_core_type ct =
     | Ttyp_poly (list, ct)  -> let on_garde = (list, untype_core_type ct) in pas_gere()
     | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in pas_gere()
   in
-  { ptyp_desc = desc; ptyp_loc = ct.ctyp_loc }  
+  let on_garde = desc, ct.ctyp_loc in p "core_type"
 
 and untype_core_field_type cft =
-  { pfield_desc = (match cft.field_desc with 
+        let on_garde = (match cft.field_desc with 
       | Tcfield_var -> pas_gere()
-      | Tcfield (s, ct) -> let on_garde = (s, untype_core_type ct) in pas_gere());
-    pfield_loc = cft.field_loc; }
+      | Tcfield (s, ct) -> let on_garde = (s, untype_core_type ct) in pas_gere()),
+    cft.field_loc in p "core_field_type"
 
 
 and untype_class_structure cs =
-  { pcstr_pat = untype_pattern cs.cstr_pat;
-    pcstr_fields = List.map untype_class_field cs.cstr_fields;
-  }
+        let on_garde = untype_pattern cs.cstr_pat, List.map untype_class_field cs.cstr_fields in p "class_structure"
 
 and untype_row_field rf =
   match rf with
-    Ttag (label, bool, list) ->
-      Rtag (label, bool, List.map untype_core_type list)
+    Ttag (label, bool, list) -> let on_garde = (label, bool, List.map untype_core_type list) in  pas_gere()
   | Tinherit ct  -> let on_garde = (untype_core_type ct) in pas_gere()
 
 
@@ -556,9 +520,7 @@ and untype_class_field cf =
       Tcf_inher (ovf, cl, super, _vals, _meths) -> let on_garde = (ovf, untype_class_expr cl, super) in pas_gere()
     | Tcf_constr (cty, cty') -> let on_garde = (untype_core_type cty, untype_core_type cty') in pas_gere()
     | Tcf_val (lab, name, mut, _, Tcfk_virtual cty, override) -> let on_garde = (name, mut, untype_core_type cty) in pas_gere()
-    | Tcf_val (lab, name, mut, _, Tcfk_concrete exp, override) -> let on_garde = (name, mut,
-          (if override then Override else Fresh),
-          untype_expression exp) in pas_gere()
+    | Tcf_val (lab, name, mut, _, Tcfk_concrete exp, override) -> let on_garde = (name, mut, (if override then Override else Fresh), untype_expression exp) in pas_gere()
     | Tcf_meth (lab, name, priv, Tcfk_virtual cty, override) -> let on_garde = (name, priv, untype_core_type cty) in pas_gere()
     | Tcf_meth (lab, name, priv, Tcfk_concrete exp, override) -> let on_garde = (name, priv, (if override then Override else Fresh), untype_expression exp) in pas_gere()
 (*    | Tcf_let (rec_flag, bindings, _) ->
@@ -567,7 +529,7 @@ and untype_class_field cf =
 *)
   | Tcf_init exp -> let on_garde = (untype_expression exp) in pas_gere()
   in
-  { pcf_desc = desc; pcf_loc = cf.cf_loc }
+  let on_garde = desc, cf.cf_loc in p "class_field"
 
 ;;
 

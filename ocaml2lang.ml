@@ -79,7 +79,7 @@ type _ expre =
   | Match               : name *) 
   | Let                 : name * _ expre -> (name * _) expre 
   | If                  : bool expre * _ expre * _ expre -> (bool * _ * _) expre	       (* Conditional [if e1 then e2 else e3] *)
-  | Fun                 : name * name * ty * ty * 'a expre -> (name * name * ty * ty * 'a) expre (* Function [fun f(x:s):t is e] 
+  | Fun                 : name * ty * ty * 'a expre -> ( name * ty * ty * 'a) expre (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                                                                   *)
   | Apply               : 'a expre * 'b expre -> ( 'a * 'b ) expre
@@ -113,8 +113,21 @@ let pas_gere() = let _ = p "Item de l'AST non géré pour le moment" in Pas_Enco
 let rec to_object_language str =
   List.map untype_structure_item str.str_items
 
+and get_variable_name pats = 
+        match pats with 
+                                          | [{pat_desc  = Tpat_var ({name = nom_var; _},_);
+                                          (*TODO : récup pat_type*)
+                                                _ 
+                                          }] -> nom_var
+                                          | _ -> failwith "pattern pat_desc pas définition varianle"
+(*TODO renvoyer aussi le type !!*)
+
+
+and get_pats_expression  list    = L.split (L.map (fun (pat, exp) -> pat, exp) list)
+
 and expre_list_to_sequence lst =
         match lst with
+        | []    -> Pas_Encore_gere
         | t::[] -> t
         (*| t::q::[]  -> Sequence (t, q)*)
         | t::q      -> Sequence (t, expre_list_to_sequence q)
@@ -127,14 +140,8 @@ and untype_structure_item item =
       (** correspond à un let*)
     | Tstr_value (Nonrecursive, list)  -> let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
                                           let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
-                                          let pats     = L.map (fun (pat, exp) -> pat) list in
-                                          let expressions = L.map (fun (pat, exp) -> untype_expression exp) list in
-                                          (match pats with 
-                                          | [{pat_desc  = Tpat_var ({Ident.stamp = 1008; name = nom_var; flags = 0},_);
-                                          (*TODO : récup pat_type*)
-                                                _ 
-                                          }] -> Let (nom_var, expre_list_to_sequence expressions)
-                                          | _ -> Pas_Encore_gere)
+                                          let pats, expressions    = get_pats_expression list in
+                                          Let (get_variable_name pats, expre_list_to_sequence (L.map untype_expression expressions))
                                           
     | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive  obligatoirement une fonction") in
                                       let on_garde = (List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list) in pas_gere()
@@ -162,8 +169,7 @@ and untype_structure_item item =
                 pci_loc = ci.ci_loc;
               }
           ) list)
- in
-pas_gere()
+ in pas_gere()
     | Tstr_class_type list -> let on_garde = 
               (List.map (fun (id, name, ct) ->
               {
@@ -174,8 +180,7 @@ pas_gere()
                 pci_variance = ct.ci_variance;
                 pci_loc = ct.ci_loc;
               }
-          ) list) in
- pas_gere()
+          ) list) in pas_gere()
     | Tstr_include (mexpr, _) -> let on_garde =(untype_module_expr mexpr) in pas_gere()
   in
   let on_garde = desc, item.str_loc in
@@ -291,12 +296,15 @@ and untype_extra (extra, loc) sexp =
 
 
 and untype_expression exp =
-  let desc =
+  
     match exp.exp_desc with
       Texp_ident (path, lid, _)  -> let on_garde = (lid) in pas_gere()
     | Texp_constant cst -> pas_gere()
     | Texp_let (rec_flag, list, exp)  -> let on_garde = (rec_flag, List.map (fun (pat, exp)  ->untype_pattern pat, untype_expression exp) list, untype_expression exp) in pas_gere()
-    | Texp_function (label, cases, _)  -> let on_garde = (label, None,List.map (fun (pat, exp)  ->  (untype_pattern pat, untype_expression exp)) cases) in pas_gere()
+    | Texp_function (label, cases, _)  -> let on_garde = (label, None,List.map (fun (pat, exp)  ->  (untype_pattern pat, untype_expression exp)) cases) in
+                                          let pats, expressions  = get_pats_expression cases in
+                                          Sequence(Fun( get_variable_name pats, TInt, TInt, expre_list_to_sequence (L.map untype_expression expressions)), Pas_Encore_gere) 
+                                          
     | Texp_apply (exp, list) -> let on_garde = (untype_expression exp,
           List.fold_right (fun (label, expo, _) list ->
               match expo with
@@ -363,8 +371,7 @@ and untype_expression exp =
     | Texp_lazy exp  -> let on_garde = (untype_expression exp) in pas_gere()
     | Texp_object (cl, _)  -> let on_garde = (untype_class_structure cl) in pas_gere()
     | Texp_pack (mexpr)  -> let on_garde = (untype_module_expr mexpr) in pas_gere()
-  in
-  Pas_Encore_gere
+  
   (*List.fold_right untype_extra exp.exp_extra Pas_Encore_gere*)
    (* { pexp_loc = exp.exp_loc;
       pexp_desc = desc }*)
@@ -580,4 +587,91 @@ and untype_class_field cf =
 #trace untype_class_structure;;
 #trace untype_row_field;;
 #trace untype_class_field;;
+#trace get_variable_name;;
+#trace expre_list_to_sequence;;
 
+
+
+
+(*
+val i : Cmi_format.cmi_infos option
+val ml : Cmt_format.cmt_infos option
+val get_ast : Cmt_format.cmt_infos option -> Typedtree.structure
+val ml2 : Typedtree.structure
+type name = string
+type ty =
+    TInt
+  | TBool
+  | TFloat
+  | TString
+  | Tchar
+  | Tlist of ty
+  | Type_variant of name * (name * ty list) list
+  | TModule of name
+  | TArrow of ty * ty
+type _ expre =
+    Var : name -> name expre
+  | Int : int -> int expre
+  | Bool : bool -> bool expre
+  | Float : float -> float expre
+  | Char : char -> char expre
+  | String : string -> string expre
+  | Sequence : 'e expre * 'f expre -> ('c * 'd) expre
+  | Sequence2 : 'h expre list -> 'g list expre
+  | StringConcat : 'k expre * 'l expre -> ('i * 'j) expre
+  | ListConcat : 'o expre * 'p expre -> ('m * 'n) expre
+  | ListAddElem : 's expre * 't expre -> ('q * 'r) expre
+  | Times : int expre * int expre -> (int * int) expre
+  | Plus : int expre * int expre -> (int * int) expre
+  | Minus : int expre * int expre -> (int * int) expre
+  | Equal : 'a expre * 'a expre -> ('a * 'a) expre
+  | Less : int expre * int expre -> (int * int) expre
+  | Let : name * 'v expre -> (name * 'u) expre
+  | If : bool expre * 'y expre * 'z expre -> (bool * 'w * 'x) expre
+  | Fun : name * name * ty * ty *
+      'a expre -> (name * name * ty * ty * 'a) expre
+  | Apply : 'a expre * 'b expre -> ('a * 'b) expre
+  | Pas_Encore_gere
+val lident_of_path : Path.t -> Longident.t
+val p : string -> unit
+val pas_gere : unit -> 'a expre
+val to_object_language : Typedtree.structure -> (name * 'a) expre list
+val expre_list_to_sequence : ('a * 'b) expre list -> ('a * 'b) expre
+val untype_structure_item : Typedtree.structure_item -> (name * 'a) expre
+val untype_value_description : Typedtree.value_description -> 'a expre
+val untype_type_declaration : Typedtree.type_declaration -> 'a expre
+val untype_exception_declaration :
+  Typedtree.exception_declaration -> 'a expre list
+val untype_pattern : Typedtree.pattern -> 'a expre
+val option :
+  (Typedtree.core_type -> 'a expre) ->
+  Typedtree.core_type option -> 'a expre option
+val untype_extra : Typedtree.exp_extra * 'a -> 'b -> 'c expre
+val untype_expression : Typedtree.expression -> ('a * 'b) expre
+val untype_package_type :
+  Typedtree.package_type ->
+  Longident.t Asttypes.loc * (Longident.t Asttypes.loc * 'a expre) list
+val untype_signature : Typedtree.signature -> 'a expre list
+val untype_modtype_declaration : Typedtree.modtype_declaration -> 'a expre
+val untype_signature_item : Typedtree.signature_item -> 'a expre
+val untype_class_description : Typedtree.class_description -> 'a expre
+val untype_class_type_declaration :
+  Typedtree.class_type_declaration -> 'a expre
+val untype_module_type : Typedtree.module_type -> 'a expre
+val untype_with_constraint :
+  Typedtree.with_constraint -> Typedtree.with_constraint -> 'a expre
+val untype_module_expr : Typedtree.module_expr -> 'a expre
+val untype_class_expr : Typedtree.class_expr -> 'a expre
+val untype_class_type : Typedtree.class_type -> 'a expre
+val untype_class_signature : Typedtree.class_signature -> 'a expre
+val untype_class_type_field : Typedtree.class_type_field -> 'a expre
+val untype_core_type : Typedtree.core_type -> 'a expre
+val untype_core_field_type : Typedtree.core_field_type -> 'a expre
+val untype_class_structure : Typedtree.class_structure -> 'a expre
+val untype_row_field : Typedtree.row_field -> 'a expre
+val untype_class_field : Typedtree.class_field -> 'a expre
+ * 
+ *
+ *
+ *
+ * *)

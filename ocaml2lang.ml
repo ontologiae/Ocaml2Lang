@@ -52,6 +52,7 @@ type ty =
   | Tchar
   | Tlist   of ty
   | Type_variant of name * (name * ty list) list (*Représente un type somme*)
+  | TRecord      of name * (name * ty list) list
   | TModule of name (*  Falloir réfléchir à une représentation simple. Pour le moment, on le met de côté*)
   | TArrow of ty * ty (* Fonctions *)
 
@@ -94,6 +95,22 @@ type _ expre =
  *
  * *******************)
 
+(*
+let to_type v =
+  | Tvar (Some a) -> failwith "Type pas géré"
+  | Tarrow of label * type_expr * type_expr * commutable
+  | Ttuple of type_expr list
+  | Tconstr of Path.t * type_expr list * abbrev_memo ref
+  | Tobject of type_expr * (Path.t * type_expr list) option ref
+  | Tfield of string * field_kind * type_expr * type_expr
+  | Tnil
+  | Tlink of type_expr
+  | Tsubst of type_expr         (* for copying *)
+  | Tvariant of row_desc
+  | Tunivar of string option
+  | Tpoly of type_expr * type_expr list
+  | Tpackage of Path.t * Longident.t list * type_expr list
+*)
 
 
 
@@ -295,10 +312,11 @@ and untype_extra (extra, loc) sexp =
  * *********************)
 
 
-and untype_expression exp =
+and untype_expression exp : _ expre =
   
     match exp.exp_desc with
       Texp_ident (path, lid, _)  -> let on_garde = (lid) in pas_gere()
+      (* Dans le path, on a le module et le nom de la fonction et normalement dans le lid, on a le typage*)
     | Texp_constant cst -> pas_gere()
     | Texp_let (rec_flag, list, exp)  -> let on_garde = (rec_flag, List.map (fun (pat, exp)  ->untype_pattern pat, untype_expression exp) list, untype_expression exp) in pas_gere()
     | Texp_function (label, cases, _)  -> let on_garde = (label, None,List.map (fun (pat, exp)  ->  (untype_pattern pat, untype_expression exp)) cases) in

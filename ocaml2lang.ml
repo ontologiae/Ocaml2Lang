@@ -2,6 +2,7 @@
 #require "batteries";;
 #require "compiler-libs.common";;
 module L = BatList;;
+module O = BatOption;;
 
 
 open Asttypes
@@ -16,9 +17,9 @@ let get_ast s = let structur = BatOption.get s in
                 | _                            -> failwith "pas d'annotation";;
 
 let ml2 = get_ast ml;;
-(L.hd ml2.Typedtree.str_items).Typedtree.str_desc;;
+(*(L.hd ml2.Typedtree.str_items).Typedtree.str_desc;;
 
-(* let funtst2 a b c = a ^b ^c
+ let funtst2 a b c = a ^b ^c
  * Tstr_value (Asttypes.Nonrecursive ..
  * |_ Tpat_var ({Ident.stamp = 1008; Ident.name = "funtst2" *
  * |_? Texp_function
@@ -28,6 +29,9 @@ let ml2 = get_ast ml;;
 
 
 
+let ast1 = match  (L.hd ml2.str_items).str_desc with |  Tstr_value (rec_flag, list)  -> list;;
+let astType1,astExpre1 = L.split ast1;;
+let expenv = (L.hd astExpre1).exp_env;;
 
 
 (*********************
@@ -56,7 +60,7 @@ type ty =
   | TModule of name (*  Falloir réfléchir à une représentation simple. Pour le moment, on le met de côté*)
   | TArrow of ty * ty (* Fonctions *)
 
-
+(*
 
 (* On ne gère que les opérateurs sur entiers, chaines et listes. TODO Float, Bool*)  
 type _ expre =
@@ -83,10 +87,39 @@ type _ expre =
   | Fun                 : name * ty * ty * 'a expre -> ( name * ty * ty * 'a) expre (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                                                                   *)
-  | Apply               : 'a expre * 'b expre -> ( 'a * 'b ) expre
+  | Apply               : name * 'b expre -> ( name * 'b ) expre
+  | ApplyBin 		: name  * _ expre * _ expre -> ( name * _ * _) expre  
   | Pas_Encore_gere       
+*)
 
-
+type  expre =
+  | Var                 of name  		(* Variable *)
+  | Int                 of int     	(* Non-negative integer constant *)
+  | Bool                of bool    	(* Boolean constant *)
+  | Float               of float   
+  | Char                of char    
+  | String              of string  
+  | Sequence            of  expre * expre 
+  | Sequence2           of  expre 
+  | StringConcat        of  expre *  expre              (*Trou de typage, mais à part des stringconstant, on est sûr de rien*)
+  | ListConcat          of  expre *  expre 
+  | ListAddElem         of  expre *  expre    (*Beau trou de typage le 2ème argument est une liste*)
+  | Times               of  expre * expre 	               (* Product [e1 * e2] *)
+  | Div                 of  expre  * expre
+  | Plus                of  expre *  expre    		       (* Sum [e1 + e2] *)
+  | Minus               of  expre *  expre 	       (* Difference [e1 - e2] *)
+  | Equal               of  expre * expre                       (* General comparison [e1 = e2] *)
+  | Less                of  expre * expre 		       (* Integer comparison [e1 < e2] *)
+ (* | TypeConstr          of 
+  | Match               of name *) 
+  | Let                 of  name *  expre 
+  | If                  of  expre *  expre *  expre        (* Conditional [if e1 then e2 else e3] *)
+  | Fun                 of  name * ty * ty * expre  (* Function [fun f(x:s):t is e] 
+                                                                                                  * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
+                                                                                                  *)
+  | Apply               of  name * expre 
+  | ApplyBin 		of  name  *  expre *  expre 
+  | Pas_Encore_gere       
 
 (*********************
  *
@@ -311,18 +344,51 @@ and untype_extra (extra, loc) sexp =
  *
  * *********************)
 
+and get_nom_valeur  tident =
+        match tident with
+        | Texp_ident (path, lid,_) -> (match lid.txt with
+                                        | Longident.Lident op -> op
+                                        | _ -> failwith "on arrive pas à trouver le nom de la fonction, mais on la texp_ident"
+        )
+        | _ -> failwith "on arrive pas à trouver le nom de la fonction"
 
-and untype_expression exp : _ expre =
+
+and from_pervasives_operator str e1 e2 =
+        match str with
+        | "^" -> Some (StringConcat (e1,e2))
+        | "+" -> Some (Plus(e1,e2))
+        | "-" -> Some (Minus (e1,e2))
+        | "*" -> Some (Times (e1,e2))
+        | "/" -> Some (Div (e1,e2))
+        | "::" -> Some (ListAddElem (e1,e2))
+        | "@"  -> Some (ListConcat (e1,e2))
+        | _    -> None
+
+
+
+                                                               
+
+
+and untype_expression exp  =
   
     match exp.exp_desc with
-      Texp_ident (path, lid, _)  -> let on_garde = (lid) in pas_gere()
+    | Texp_ident (path, lid,_) as t -> Var (get_nom_valeur t) (* in *)
       (* Dans le path, on a le module et le nom de la fonction et normalement dans le lid, on a le typage*)
     | Texp_constant cst -> pas_gere()
     | Texp_let (rec_flag, list, exp)  -> let on_garde = (rec_flag, List.map (fun (pat, exp)  ->untype_pattern pat, untype_expression exp) list, untype_expression exp) in pas_gere()
     | Texp_function (label, cases, _)  -> let on_garde = (label, None,List.map (fun (pat, exp)  ->  (untype_pattern pat, untype_expression exp)) cases) in
                                           let pats, expressions  = get_pats_expression cases in
-                                          Sequence(Fun( get_variable_name pats, TInt, TInt, expre_list_to_sequence (L.map untype_expression expressions)), Pas_Encore_gere) 
-                                          
+                                          Fun( get_variable_name pats, TInt, TInt, expre_list_to_sequence (L.map untype_expression expressions))
+    | Texp_apply ( {exp_desc = Texp_ident (path, txt, typ) ; _}, param1::param2::[]) -> 
+                    let _,exp1,_ = param1 in
+                    let _,exp2,_ = param2 in
+                    let fonc_name = get_nom_valeur (Texp_ident (path, txt, typ)) in
+                    let func = from_pervasives_operator fonc_name (untype_expression (O.get exp1)) (untype_expression (O.get exp2)) in (*TODO check*)
+                    (match func with
+                    | Some a -> a
+                    | None   -> ApplyBin( fonc_name (*opérateur*) , untype_expression (O.get exp1), untype_expression (O.get exp2))
+                    )
+
     | Texp_apply (exp, list) -> let on_garde = (untype_expression exp,
           List.fold_right (fun (label, expo, _) list ->
               match expo with

@@ -9,7 +9,7 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst1.cmt";;
+let i,ml = Cmt_format.read "tst6.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -28,10 +28,11 @@ let ml2 = get_ast ml;;
 
 
 
-
-let ast1 = match  (L.hd ml2.str_items).str_desc with |  Tstr_value (rec_flag, list)  -> list;;
-let astType1,astExpre1 = L.split ast1;;
-let expenv = (L.hd astExpre1).exp_env;;
+let expenv = try
+        let ast1 = match  (L.hd ml2.str_items).str_desc with |  Tstr_value (rec_flag, list)  -> list in
+        let astType1,astExpre1 = L.split ast1 in
+        let expenv = (L.hd astExpre1).exp_env in Some expenv
+with e -> None
 
 
 (*********************
@@ -94,6 +95,7 @@ type _ expre =
 
 type  expre =
   | Var                 of name  		(* Variable *)
+  | Module              of name
   | Int                 of int     	(* Non-negative integer constant *)
   | Bool                of bool    	(* Boolean constant *)
   | Float               of float   
@@ -112,13 +114,14 @@ type  expre =
   | Less                of  expre * expre 		       (* Integer comparison [e1 < e2] *)
  (* | TypeConstr          of 
   | Match               of name *) 
-  | Let                 of  name *  expre 
+  | Let                 of  name list *  expre 
   | If                  of  expre *  expre *  expre        (* Conditional [if e1 then e2 else e3] *)
   | Fun                 of  name * ty * ty * expre  (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                                                                   *)
   | Apply               of  name * expre 
-  | ApplyBin 		of  name  *  expre *  expre 
+  | ApplyN 		of  name * (expre list)
+  (* Il faut def un apply à n argument*)
   | Pas_Encore_gere       
 
 (*********************
@@ -163,13 +166,12 @@ let pas_gere() = let _ = p "Item de l'AST non géré pour le moment" in Pas_Enco
 let rec to_object_language str =
   List.map untype_structure_item str.str_items
 
-and get_variable_name pats = 
-        match pats with 
-                                          | [{pat_desc  = Tpat_var ({name = nom_var; _},_);
-                                          (*TODO : récup pat_type*)
-                                                _ 
-                                          }] -> nom_var
-                                          | _ -> failwith "pattern pat_desc pas définition varianle"
+and get_variables_names pats =
+        let get_nom_var pat =
+               match pat with
+               | {pat_desc  = Tpat_var ({name = nom_var; _},_);} -> nom_var
+               | _ -> failwith "pattern pat_desc pas définition variable" in
+        L.map get_nom_var pats
 (*TODO renvoyer aussi le type !!*)
 
 
@@ -185,13 +187,22 @@ and untype_structure_item item =
   let desc =
     match item.str_desc with
     (* Probablement une évaluation directe*)
-      Tstr_eval exp -> let on_garde = (untype_expression exp) in pas_gere()
+      Tstr_eval exp -> untype_expression exp
 
-      (** correspond à un let*)
+       (* Correspond à un let GLOBAL au programme
+        *
+        * 1er param : recursif ou non.  rec_flag
+     * Second Param : la variable def et le contenu de l'expression qui def le let. (Typedtree.pattern * Typedtree.expression) list
+     * * La variable est défini dans le Typedtree.pattern
+     * * L'expression qui def la variable dans le Typedtree.expression
+     *
+     * Question, que ce passe-t il si on a un in derrière ?
+     * Réponse : ça devient un Tstr_eval qui contient un let (ahh la bidouille !)*)
+
     | Tstr_value (Nonrecursive, list)  -> let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
                                           let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
                                           let pats, expressions    = get_pats_expression list in
-                                          Let (get_variable_name pats, expre_list_to_sequence (L.map untype_expression expressions))
+                                          Let (get_variables_names pats, expre_list_to_sequence (L.map untype_expression expressions))
                                           
     | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive  obligatoirement une fonction") in
                                       let on_garde = (List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list) in pas_gere()
@@ -348,6 +359,7 @@ and get_nom_valeur  tident =
         match tident with
         | Texp_ident (path, lid,_) -> (match lid.txt with
                                         | Longident.Lident op -> op
+                                        | Longident.Ldot (Longident.Lident modul, _ ) -> p "surement un module"; modul
                                         | _ -> failwith "on arrive pas à trouver le nom de la fonction, mais on la texp_ident"
         )
         | _ -> failwith "on arrive pas à trouver le nom de la fonction"
@@ -372,13 +384,40 @@ and from_pervasives_operator str e1 e2 =
 and untype_expression exp  =
   
     match exp.exp_desc with
-    | Texp_ident (path, lid,_) as t -> Var (get_nom_valeur t) (* in *)
-      (* Dans le path, on a le module et le nom de la fonction et normalement dans le lid, on a le typage*)
-    | Texp_constant cst -> pas_gere()
-    | Texp_let (rec_flag, list, exp)  -> let on_garde = (rec_flag, List.map (fun (pat, exp)  ->untype_pattern pat, untype_expression exp) list, untype_expression exp) in pas_gere()
+    (* Dans le path, on a le module et le nom de la fonction et normalement dans le lid, on a le typage*)
+    | Texp_ident (path, lid,_) as t -> let nom_var = (get_nom_valeur t) in
+                                        (match nom_var.[0] with
+                                        | 'A'..'Z' -> Module nom_var
+
+                                        |  _       -> Var nom_var)
+    | Texp_constant cst -> (match cst with
+                                | Const_string s -> String s
+                                | Const_char   c -> Char   c
+                                | Const_int    i -> Int    i
+                                | Const_float  f -> Float  (float_of_string f)
+                           )
+    (* DÉFINITION D'UNE VARIABLE LOCALE.
+     * 1er param : recursif ou non.  rec_flag
+     * Second Param : la variable def et le contenu de l'expression qui def le let. (Typedtree.pattern * Typedtree.expression) list
+     * * La variable est défini dans le Typedtree.pattern
+     * * L'expression qui def la variable dans le Typedtree.expression
+     * Troisième param, les expres qui suivent : Typedtree.expression*)
+    | Texp_let (rec_flag, list_exp_du_let, expression_suite)  -> let on_garde = 
+                (rec_flag, List.map (fun (pat, exp)  -> untype_pattern pat, untype_expression exp) list_exp_du_let, untype_expression expression_suite) in pas_gere()
+
+
+    (* DÉFINITION D'UNE FONCTION
+     * 1er param : nom (rare)
+     * 2nd param : (Typedtree.pattern * Typedtree.expression) list
+     * 3eme param : indicateur hyper utile qui dit si la fonction est appliqué totalement ou non :-) 
+     *
+     * Logiquement la taille du 2nd argument est de 1, car l'AST décurrifie les fonctions à plusieurs arguments*)
     | Texp_function (label, cases, _)  -> let on_garde = (label, None,List.map (fun (pat, exp)  ->  (untype_pattern pat, untype_expression exp)) cases) in
                                           let pats, expressions  = get_pats_expression cases in
-                                          Fun( get_variable_name pats, TInt, TInt, expre_list_to_sequence (L.map untype_expression expressions))
+                                          Fun( L.hd (get_variables_names pats), TInt, TInt, expre_list_to_sequence (L.map untype_expression expressions))
+
+    (* 1er param le nom de la fonction, son typage, etc... : Typedtree.expression
+     * 2nd param : La liste des params, il y en a autant que de params : (name * Typedtree.expression option * optional) list*)                                          
     | Texp_apply ( {exp_desc = Texp_ident (path, txt, typ) ; _}, param1::param2::[]) -> 
                     let _,exp1,_ = param1 in
                     let _,exp2,_ = param2 in
@@ -386,7 +425,7 @@ and untype_expression exp  =
                     let func = from_pervasives_operator fonc_name (untype_expression (O.get exp1)) (untype_expression (O.get exp2)) in (*TODO check*)
                     (match func with
                     | Some a -> a
-                    | None   -> ApplyBin( fonc_name (*opérateur*) , untype_expression (O.get exp1), untype_expression (O.get exp2))
+                    | None   -> Sequence( Apply( fonc_name (*opérateur*) , untype_expression (O.get exp1)), untype_expression (O.get exp2))
                     )
 
     | Texp_apply (exp, list) -> let on_garde = (untype_expression exp,

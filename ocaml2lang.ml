@@ -92,7 +92,7 @@ type _ expre =
   | ApplyBin 		: name  * _ expre * _ expre -> ( name * _ * _) expre  
   | Pas_Encore_gere       
 *)
-
+type recurs = Rec | NonRec
 type  expre =
   | Var                 of name  		(* Variable *)
   | Module              of name
@@ -114,7 +114,7 @@ type  expre =
   | Less                of  expre * expre 		       (* Integer comparison [e1 < e2] *)
  (* | TypeConstr          of 
   | Match               of name *) 
-  | Let                 of  name list *  expre 
+  | Let                 of  recurs * name list *  expre 
   | If                  of  expre *  expre *  expre        (* Conditional [if e1 then e2 else e3] *)
   | Fun                 of  name * ty * ty * expre  (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
@@ -202,7 +202,7 @@ and untype_structure_item item =
     | Tstr_value (Nonrecursive, list)  -> let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
                                           let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
                                           let pats, expressions    = get_pats_expression list in
-                                          Let (get_variables_names pats, expre_list_to_sequence (L.map untype_expression expressions))
+                                          Let (NonRec, get_variables_names pats, expre_list_to_sequence (L.map untype_expression expressions))
                                           
     | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive  obligatoirement une fonction") in
                                       let on_garde = (List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list) in pas_gere()
@@ -378,7 +378,9 @@ and from_pervasives_operator str e1 e2 =
 
 
 
-                                                               
+and rec_to_rec = function 
+        | Recursive -> Rec
+        | Nonrecursive -> NonRec
 
 
 and untype_expression exp  =
@@ -403,8 +405,10 @@ and untype_expression exp  =
      * * L'expression qui def la variable dans le Typedtree.expression
      * Troisième param, les expres qui suivent : Typedtree.expression*)
     | Texp_let (rec_flag, list_exp_du_let, expression_suite)  -> let on_garde = 
-                (rec_flag, List.map (fun (pat, exp)  -> untype_pattern pat, untype_expression exp) list_exp_du_let, untype_expression expression_suite) in pas_gere()
-
+                (rec_flag, List.map (fun (pat, exp)  -> untype_pattern pat, untype_expression exp) list_exp_du_let, untype_expression expression_suite) in 
+                let p,e = get_pats_expression list_exp_du_let in
+                    Let (rec_to_rec rec_flag, get_variables_names p, untype_expression expression_suite)
+                 
 
     (* DÉFINITION D'UNE FONCTION
      * 1er param : nom (rare)

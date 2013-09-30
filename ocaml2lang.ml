@@ -9,7 +9,7 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst3.cmt";;
+let i,ml = Cmt_format.read "tst6.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -33,7 +33,7 @@ let ml2 = get_ast ml;;
  * |_? Texp_function
  *     |__ Tpat_desc a
  * *)
-#print_length 10000;;
+#print_length 100000;;
 
 
 let expenv = try
@@ -60,6 +60,9 @@ let tsrteval e = match e with Tstr_eval e -> e | _ -> failwith "pas le bon ! :-)
 let texpapp e  = match e with | Texp_apply (a,b) -> a,b | _ -> failwith "pas le bon ! :-)";;
 
 let texplet e  = match e with | Texp_let(a, lst,b) -> a,lst,b  | _ -> failwith "pas le bon ! :-)";;
+
+let texcons e  = match e with | Texp_construct(a, lst,b,c) -> a,lst,b,c  | _ -> failwith "pas le bon ! :-)";;
+
 
 (*********************
  *
@@ -120,6 +123,8 @@ type _ expre =
 *)
 type recurs = Rec | NonRec
 type  expre =
+  | ListeVide
+  | NoneExp
   | Var                 of name  		(* Variable *)
   | DefModule           of name * expre
   | ModuleCall          of name * name
@@ -488,19 +493,45 @@ and untype_expression exp  =
     | Texp_match (exp, list, _) ->
         let on_garde = (untype_expression exp,
           List.map (fun (pat, exp) ->
-              untype_pattern pat, untype_expression exp) list)  in pas_gere()
+              untype_pattern pat, untype_expression exp) list)  in  pas_gere()
     | Texp_try (exp, list) ->
         let on_garde = (untype_expression exp,
           List.map (fun (pat, exp) ->
               untype_pattern pat, untype_expression exp) list) in pas_gere()
     | Texp_tuple list  -> let on_garde = (List.map untype_expression list) in pas_gere()
-    | Texp_construct ( lid, _, args, explicit_arity) ->
-                    let on_garde = (lid, (match args with
+
+    (* Texp_construct of Longident.t loc * constructor_description * expression list * bool 
+        *)
+    | Texp_construct ( lid, constructor_desc, args, explicit_arity) ->
+                    let get_valeur_seule cons = 
+                             match cons with
+                                        | "[]" -> ListeVide
+                                        | "None" -> NoneExp
+                                        | _    -> failwith "contenu de TConstruct pas connu" in
+
+                    (match args with
+                     | []    -> get_valeur_seule constructor_desc.cstr_name (*Ou plutôt pas de param, mais bon...*)
+                     | [arg] -> Pas_Encore_gere
+                     | argss ->   let membre_gauche = untype_expression (L.hd args) in
+                        let membre_droit  = untype_expression (L.at args 1) in
+                        (* On fait quoi si c'est pas un opérateur binaire ?
+                         * On match la taille du tableau ?*)
+                        (match from_pervasives_operator  constructor_desc.cstr_name membre_gauche membre_droit with
+                         | Some op -> op
+                         | None    -> (
+                                        match constructor_desc.cstr_name with
+                                        | "[]" -> ListeVide
+                                        | _    -> failwith "contenu de TConstruct pas connu"
+                                        ) 
+                         )
+                    )
+
+                  (*  let on_garde = (lid, (match args with
                                           | [] -> None
                                           | [ arg ] -> Some (untype_expression arg)
                                           (*TODO : HACK !!*)
                                           | t::args -> let on_garde = List.map untype_expression args in let on_garde2 = exp.exp_loc in Some (untype_expression t))
-                    , explicit_arity) in pas_gere()
+                    , explicit_arity) in pas_gere()*)
     | Texp_variant (label, expo) ->
         let on_garde = (label, match expo with
             None -> None

@@ -324,11 +324,11 @@ and untype_type_declaration decl  =
                                                                                                      ) 
                                                         | _   -> failwith "on a un truc bizare dans une construction de type somme"
                                                       ) in*)                      
-                      let type_somme = L.map  (fun (s, name, cts, loc) -> TTuple(L.map untype_core_type cts)) list in
+                      let type_somme = L.map  (fun (s, name, cts, loc) -> TType_variant(name.txt, TTuple(L.map untype_core_type cts))) list in
                       ( match L.length type_somme with
                         | 0 -> InconnuPasGere
                         | 1 -> L.hd type_somme
-                        | n -> TTuple type_somme
+                        | n -> TSum_type type_somme
                       ) 
                       
                       

@@ -9,7 +9,7 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst2.cmt";;
+let i,ml = Cmt_format.read "tst7.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -96,12 +96,16 @@ type ty =
   | TFloat
   | TString
   | TChar
-  | Tlist   of ty
-  | Type_variant of  (name * ty list) list (*Représente un type somme*)
-  | TRecord      of  (name * ty list) list
-  | TModule of name (*  Falloir réfléchir à une représentation simple. Pour le moment, on le met de côté*)
-  | TArrow of ty * ty (* Fonctions *)
-  | TLink  of name (**)
+  | TGenericVar   of name
+  | TGeneric      of ty list * ty (* La liste des génériques. Exemple : type ('a ,'b) machin = string*)
+  | Tlist         of ty
+  | TTuple        of ty list
+  | TSum_type     of ty list
+  | TType_variant of  (name * ty)   (*Représente un type élément de type somme. ty, car on utilisera un tuple s'il le faut*)
+  | TRecord       of  (name * ty) list
+  | TModule       of name (*  Falloir réfléchir à une représentation simple. Pour le moment, on le met de côté*)
+  | TArrow        of ty * ty (* Fonctions *)
+  | TLink         of name (**)
 
 (*
 
@@ -309,23 +313,26 @@ and to_core_type name =
         | "char"   -> TChar
         | "float"  -> TFloat
         | s        -> TLink s
-and untype_type_declaration decl =
+and untype_type_declaration decl  =
       (*  let on_garde = decl.typ_params, ( List.map (fun (ct1, ct2, loc) -> (untype_core_type ct1, untype_core_type ct2, loc)) decl.typ_cstrs),*)
     match decl.typ_kind with
-     | Ttype_abstract -> InconnuPasGere
-     | Ttype_variant list -> let get_constr_item c = (match c.ctyp_desc with
+    | Ttype_abstract ->  InconnuPasGere
+    | Ttype_variant list -> (*let get_constr_item c = (match c.ctyp_desc with
                                                         | Ttyp_constr (_path, types , loc) ->   ( match types.txt with
                                                                                                                 |  Longident.Lident nomtype -> to_core_type nomtype
                                                                                                                 |  _    -> failwith "on a pas de Longident pour le nom type"
                                                                                                      ) 
                                                         | _   -> failwith "on a un truc bizare dans une construction de type somme"
-                                                      ) in
+                                                      ) in*)                      
+                      let type_somme = L.map  (fun (s, name, cts, loc) -> TTuple(L.map untype_core_type cts)) list in
+                      ( match L.length type_somme with
+                        | 0 -> InconnuPasGere
+                        | 1 -> L.hd type_somme
+                        | n -> TTuple type_somme
+                      ) 
                       
-                      let type_somme = L.map  (fun (s, name, cts, loc) -> name.txt, L.map get_constr_item cts) list in
-                      Type_variant type_somme
                       
-                      
-      | Ttype_record list -> let on_garde = (List.map (fun (s, name, mut, ct, loc) -> (name, mut, untype_core_type ct, loc) ) list)   in InconnuPasGere
+      | Ttype_record list -> let on_garde = (List.map (fun (s, name, mut, ct, loc) -> (name, mut, untype_core_type ct, loc) ) list)   in TRecord([])
     (*,
     decl.typ_private,
      (match decl.typ_manifest with
@@ -406,6 +413,14 @@ and untype_extra (extra, loc) sexp =
  *      Expressions
  *
  * *********************)
+
+and get_long_ident lid =
+        (match lid.txt with
+                                        | Longident.Lident op -> op
+                                        | _ -> failwith "get_long_ident : autre cas que Longident.Lident "
+        )
+
+
 
 and get_nom_valeur  tident =
         match tident with
@@ -633,9 +648,9 @@ and untype_signature_item item =
     match item.sig_desc with
       Tsig_value (id, name, v) -> let on_garde =  (name, untype_value_description v) in pas_gere()
     | Tsig_type list ->
-        let on_garde =  (List.map (fun (id, name, decl) ->
+      (*  let on_garde =  (List.map (fun (id, name, decl) ->
               name, untype_type_declaration decl
-          ) list) in pas_gere()
+          ) list) in*) pas_gere()
     | Tsig_exception (id, name, decl) -> let on_garde =  (name, untype_exception_declaration decl) in pas_gere()
     | Tsig_module (id, name, mtype) -> let on_garde =  (name, untype_module_type mtype) in pas_gere()
     | Tsig_recmodule list -> let on_garde = (List.map (fun (id, name, mtype) ->  name, untype_module_type mtype) list) in pas_gere()
@@ -673,9 +688,9 @@ and untype_module_type mty =
 
 and untype_with_constraint lid cstr =
   match cstr with
-    Twith_type decl  -> let on_garde = (lid, untype_type_declaration decl) in pas_gere()
+    Twith_type decl  -> (*let on_garde = (lid, untype_type_declaration decl) *)  pas_gere()
   | Twith_module (_path, lid2)  -> let on_garde = (lid, lid2) in pas_gere()
-  | Twith_typesubst decl  -> let on_garde = (untype_type_declaration decl) in pas_gere()
+  | Twith_typesubst decl  -> (* let on_garde = (untype_type_declaration decl)*)  pas_gere()
   | Twith_modsubst (_path, lid2)  -> let on_garde = (_path, lid2) in pas_gere()
 
 and untype_module_expr mexpr =
@@ -751,27 +766,39 @@ and untype_class_type_field ctf =
   
 
 and untype_core_type ct =
-  let desc = match ct.ctyp_desc with
-      Ttyp_any -> pas_gere()
-    | Ttyp_var s ->  pas_gere()
-    | Ttyp_arrow (label, ct1, ct2)  -> let on_garde = (label, untype_core_type ct1, untype_core_type ct2) in pas_gere()
-    | Ttyp_tuple list  -> let on_garde = (List.map untype_core_type list) in pas_gere()
+   match ct.ctyp_desc with
+      Ttyp_any -> failwith "type any, c'est quoi ???"
+    | Ttyp_var s ->  TGenericVar s
+    | Ttyp_arrow (label, ct1, ct2)  ->  TArrow(  untype_core_type ct1, untype_core_type ct2) 
+                  (*  let on_garde = (label, untype_core_type ct1, untype_core_type ct2) in InconnuPasGere*)
+    | Ttyp_tuple list  -> TTuple (L.map untype_core_type list) 
 
 
-        
-    | Ttyp_constr (_path, lid, list) -> let on_garde = (lid,List.map untype_core_type list) in pas_gere()
-    | Ttyp_object list  -> let on_garde =  (List.map untype_core_field_type list) in pas_gere()
-    | Ttyp_class (path, lid, list, labels)  -> let on_garde =  (lid, List.map untype_core_type list, labels) in pas_gere()
-    | Ttyp_alias (ct, s)  -> let on_garde = (untype_core_type ct, s) in pas_gere()
+        (* C'est là que les athéniens....
+         *
+         * En gros machin list se traduit en Ttyp_constr ("list", Ttyp_constr "machin")
+         * Donc, on peut voir le truc comme ça : si list est non vide, c'est un générique...
+         * Pareil, va falloir faire un appel récursif et matcher ce que ça donne pour décider ce qu'on fait. genre, si c'est un tvar, c'est un générique 'a *)
+    | Ttyp_constr (_path, lid, list) -> 
+                    let type_ = to_core_type (get_long_ident lid) in
+                    ( match L.length list with
+                        | 0 -> (*Un type simple *) to_core_type (get_long_ident lid) 
+                        | 1 -> let generic = L.hd list in
+                               let sstype = untype_core_type generic in
+                               TGeneric([sstype],type_)
+                        | n -> failwith "ya plusieurs sous éléments dans Ttyp_constr"
+                    )
+    | Ttyp_object list  -> (*let on_garde =  (List.map untype_core_field_type list)   in *) failwith "On ne gère pas les objets pour le moment"
+    | Ttyp_class (path, lid, list, labels)  -> (*let on_garde =  (lid, List.map untype_core_type list, labels) in*) failwith "On ne gère pas les objets pour le moment"
+    | Ttyp_alias (ct, s)  -> let on_garde = (untype_core_type ct, s) in InconnuPasGere
 
 
 (*| Type_variant of name * (name * ty list) list *)
-    | Ttyp_variant (list, bool, labels)  -> let on_garde = (L.map untype_row_field list, bool, labels)  in pas_gere()
+    | Ttyp_variant (list, bool, labels)  -> let on_garde = (L.map untype_row_field list, bool, labels)  in InconnuPasGere
 
-    | Ttyp_poly (list, ct)  -> let on_garde = (list, untype_core_type ct) in pas_gere()
-    | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in pas_gere()
-  in
-  let on_garde = desc, ct.ctyp_loc in (*p "core_type"*) Pas_Encore_gere
+    | Ttyp_poly (list, ct)  -> let on_garde = (list, untype_core_type ct) in InconnuPasGere
+    | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in InconnuPasGere
+  
 
 and untype_core_field_type cft =
         let on_garde = (match cft.field_desc with 

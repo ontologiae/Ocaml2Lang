@@ -141,7 +141,7 @@ type recurs = Rec | NonRec
 type  expre =
   | ListeVide
   | NoneExp
-  | Var                 of name  		(* Variable *)
+  | Var                 of name 		(* Variable *)
   | DefModule           of name * expre
   | ModuleCall          of name * name
   | Int                 of int     	(* Non-negative integer constant *)
@@ -162,7 +162,7 @@ type  expre =
   | Less                of  expre * expre 		       (* Integer comparison [e1 < e2] *)
  (* | TypeConstr          of 
   | Match               of name *) 
-  | Let                 of  recurs * name list *  expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
+  | Let                 of  recurs * name list * ty *  expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
   | If                  of  expre *  expre *  expre        (* Conditional [if e1 then e2 else e3] *)
   | Fun                 of  name * ty * expre  (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
@@ -252,7 +252,8 @@ and untype_structure_item item =
     | Tstr_value (Nonrecursive, list)  -> let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
                                           let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
                                           let pats, expressions    = get_pats_expression list in
-                                          Let (NonRec, get_variables_names pats, L.map untype_expression expressions)
+                                          let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in
+                                          Let (NonRec, get_variables_names pats, typage, L.map untype_expression expressions)
                                           
     | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive  obligatoirement une fonction") in
                                       let on_garde = (List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list) in pas_gere()
@@ -489,7 +490,8 @@ and untype_expression exp  =
      * Troisième param, les expres qui suivent le <exp> in du let truc = machin in <exp>: Typedtree.expression*)
     | Texp_let (rec_flag, list_exp_du_let, expression_suite)  -> 
                 let p,e = get_pats_expression list_exp_du_let in
-                    Sequence(Let (rec_to_rec rec_flag, get_variables_names p, L.map untype_expression e), untype_expression expression_suite)
+                let typage = let pat = L.hd p in type_from_ast_type pat.pat_type in
+                    Sequence(Let (rec_to_rec rec_flag, get_variables_names p, typage, L.map untype_expression e), untype_expression expression_suite)
                  
 
     (* DÉFINITION D'UNE FONCTION
@@ -499,7 +501,9 @@ and untype_expression exp  =
      *
      * Logiquement la taille du 2nd argument est de 1, car l'AST décurrifie les fonctions à plusieurs arguments*)
     | Texp_function (label, cases, _)  -> let pats, expressions  = get_pats_expression cases in
-                                          Fun( L.hd (get_variables_names pats), TInt, expre_list_to_sequence (L.map untype_expression expressions))
+                                          (* Pour récup le type, on récupère les infos de typage du premier élem ???
+                                           * Après test, on récup que la partie gauche du Tarrow. Faut remonter plus haut pour tout récup*)
+                                          Fun( L.hd (get_variables_names pats), InconnuPasGere, expre_list_to_sequence (L.map untype_expression expressions))
 
     (* 1er param le nom de la fonction, son typage, etc... : Typedtree.expression
      * 2nd param : La liste des params, il y en a autant que de params : (name * Typedtree.expression option * optional) list*)                                          

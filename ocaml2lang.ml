@@ -9,13 +9,12 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst7.cmt";;
+let i,ml = Cmt_format.read "tst3.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
                 | Cmt_format.Implementation st -> st
                 | _                            -> failwith "pas d'annotation";;
-
 
 (*********************
  *
@@ -165,7 +164,7 @@ type  expre =
   | Match               of name *) 
   | Let                 of  recurs * name list *  expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
   | If                  of  expre *  expre *  expre        (* Conditional [if e1 then e2 else e3] *)
-  | Fun                 of  name * ty * ty * expre  (* Function [fun f(x:s):t is e] 
+  | Fun                 of  name * ty * expre  (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                                                                   *)
   | Apply               of  name * expre 
@@ -313,6 +312,8 @@ and to_core_type name =
         | "char"   -> TChar
         | "float"  -> TFloat
         | s        -> TLink s
+
+
 and untype_type_declaration decl   : ty =
       (*  let on_garde = decl.typ_params, ( List.map (fun (ct1, ct2, loc) -> (untype_core_type ct1, untype_core_type ct2, loc)) decl.typ_cstrs),*)
     match decl.typ_kind with
@@ -498,7 +499,7 @@ and untype_expression exp  =
      *
      * Logiquement la taille du 2nd argument est de 1, car l'AST décurrifie les fonctions à plusieurs arguments*)
     | Texp_function (label, cases, _)  -> let pats, expressions  = get_pats_expression cases in
-                                          Fun( L.hd (get_variables_names pats), TInt, TInt, expre_list_to_sequence (L.map untype_expression expressions))
+                                          Fun( L.hd (get_variables_names pats), TInt, expre_list_to_sequence (L.map untype_expression expressions))
 
     (* 1er param le nom de la fonction, son typage, etc... : Typedtree.expression
      * 2nd param : La liste des params, il y en a autant que de params : (name * Typedtree.expression option * optional) list*)                                          
@@ -840,6 +841,89 @@ and untype_class_field cf =
   in
   let on_garde = desc, cf.cf_loc in (*p "class_field"*) Pas_Encore_gere
 
+and to_base_type  typ sstype =
+        match typ with 
+        | "list"   -> Tlist sstype
+        | "char"   -> TChar
+        | "string" -> TString
+        | "int"    -> TInt
+        | "float"  -> TFloat
+        | "bool"   -> TBool
+
+and type_from_ast_type typ =
+        let open Types in
+        match typ.desc with
+        | Tvar stop -> (match stop with
+                       | Some a -> TGenericVar a
+                       | None   -> TGenericVar "a")
+        | Tarrow (label , type_expr1 , type_expr2 , commutable)  -> TArrow( type_from_ast_type type_expr1, type_from_ast_type type_expr2)
+        | Ttuple type_expr_list                                  -> let on_garde = L.map type_from_ast_type type_expr_list in InconnuPasGere
+        | Tconstr (path, type_expr_list, abbrev_memo_ref)        -> let sous_types = (L.map type_from_ast_type type_expr_list) in
+                                                                    let type_ = ( match path with
+                                                                                        | Path.Pident id -> id.name
+                                                                                        | _ -> failwith "pas de  Path.Pident id  dans le type"
+                                        
+                                                                                ) in
+                                                                     ( match L.length sous_types with
+                                                                     | 0 -> p "pas de sous types"; to_base_type type_ InconnuPasGere
+                                                                          | 1 -> to_base_type type_ (L.hd sous_types)
+                                                                          | n -> to_base_type type_ (TTuple sous_types)
+                                                                        )
+ 
+
+        | Tobject (type_expr,   patht_type_expr_list_option_ref) -> failwith "On gère pas les objets"
+        | Tfield  (string, field_kind, type_expr1, type_expr2)   -> failwith "Probablement un type record"
+        | Tnil                                                   -> InconnuPasGere
+        | Tlink                                       type_expr  -> type_from_ast_type type_expr
+        | Tsubst  type_expr         (* for copying *)            -> failwith "je connais pas ce type Tsubst"
+        | Tvariant  row_desc                                     -> failwith "reste à voir comment marche variant"
+        | Tunivar  string_option                                 -> failwith "je connais pas ce type Tunivar"
+        | Tpoly (type_expr, type_expr_list)                      -> let on_garde = L.map type_from_ast_type type_expr_list in InconnuPasGere
+        | Tpackage  (patht , longident_list , type_expr_list)    -> let on_garde = L.map type_from_ast_type type_expr_list in InconnuPasGere
+
+
+(*
+type type_expr =
+  { mutable desc: type_desc;
+    mutable level: int;
+    mutable id: int }
+
+and type_desc =
+    Tvar of string option
+  | Tarrow of label * type_expr * type_expr * commutable
+  | Ttuple of type_expr list
+  | Tconstr of Path.t * type_expr list * abbrev_memo ref
+  | Tobject of type_expr * (Path.t * type_expr list) option ref
+  | Tfield of string * field_kind * type_expr * type_expr
+  | Tnil
+  | Tlink of type_expr
+  | Tsubst of type_expr         (* for copying *)
+  | Tvariant of row_desc
+  | Tunivar of string option
+  | Tpoly of type_expr * type_expr list
+  | Tpackage of Path.t * Longident.t list * type_expr list
+  
+type ty =
+  | InconnuPasGere
+  | TInt              (* Integers *)
+  | TBool             (* Booleans *)
+  | TFloat
+  | TString
+  | TChar
+  | TGenericVar   of name
+  | TGeneric      of ty list * ty (* La liste des génériques. Exemple : type ('a ,'b) machin = string*)
+  | Tlist         of ty
+  | TTuple        of ty list
+  | TSum_type     of ty list
+  | TType_variant of  (name * ty)   (*Représente un type élément de type somme. ty, car on utilisera un tuple s'il le faut*)
+  | TRecord       of  (name * ty) list
+  | TModule       of name (*  Falloir réfléchir à une représentation simple. Pour le moment, on le met de côté*)
+  | TArrow        of ty * ty (* Fonctions *)
+  | TLink         of name (**)
+  
+  
+  *)
+
 ;;
 
 #trace untype_structure_item;;
@@ -870,7 +954,7 @@ and untype_class_field cf =
 #trace untype_class_field;;
 #trace get_variable_name;;
 #trace expre_list_to_sequence;;
-
+#trace type_from_ast_type;;
 
 
 

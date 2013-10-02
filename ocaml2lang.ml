@@ -137,7 +137,7 @@ type _ expre =
   | Apply               : name * 'b expre -> ( name * 'b ) expre
   | ApplyBin 		: name  * _ expre * _ expre -> ( name * _ * _) expre  
   | Pas_Encore_gere       
-*)
+*) 
 type recurs = Rec | NonRec
 type  expre =
   | ListeVide
@@ -313,7 +313,7 @@ and to_core_type name =
         | "char"   -> TChar
         | "float"  -> TFloat
         | s        -> TLink s
-and untype_type_declaration decl  =
+and untype_type_declaration decl   : ty =
       (*  let on_garde = decl.typ_params, ( List.map (fun (ct1, ct2, loc) -> (untype_core_type ct1, untype_core_type ct2, loc)) decl.typ_cstrs),*)
     match decl.typ_kind with
     | Ttype_abstract ->  InconnuPasGere
@@ -323,13 +323,21 @@ and untype_type_declaration decl  =
                                                                                                                 |  _    -> failwith "on a pas de Longident pour le nom type"
                                                                                                      ) 
                                                         | _   -> failwith "on a un truc bizare dans une construction de type somme"
-                                                      ) in*)                      
-                      let type_somme = L.map  (fun (s, name, cts, loc) -> TType_variant(name.txt, TTuple(L.map untype_core_type cts))) list in
+                                                      ) in*)
+                      let fun_param_variant (s, name, cts, loc) =
+                                                     let parametre_variant = L.map untype_core_type cts in
+                                                    (match L.length parametre_variant with
+                                                          | 0 -> TType_variant(name.txt,InconnuPasGere)
+                                                          | 1 -> TType_variant(name.txt,L.hd parametre_variant)
+                                                          | n -> TType_variant(name.txt,TTuple parametre_variant)
+                                                    ) 
+                      in                                                                                       
+                      let type_somme = L.map fun_param_variant list in
                       ( match L.length type_somme with
                         | 0 -> InconnuPasGere
-                        | 1 -> L.hd type_somme
                         | n -> TSum_type type_somme
                       ) 
+
                       
                       
       | Ttype_record list -> let on_garde = (List.map (fun (s, name, mut, ct, loc) -> (name, mut, untype_core_type ct, loc) ) list)   in TRecord([])

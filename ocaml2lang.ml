@@ -9,7 +9,7 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst3.cmt";;
+let i,ml = Cmt_format.read "tst2.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -89,7 +89,7 @@ type name = string
 
 
 type ty =
-  | InconnuPasGere
+  | Inconnu
   | TInt              (* Integers *)
   | TBool             (* Booleans *)
   | TFloat
@@ -150,28 +150,28 @@ type  expre =
   | Char                of char    
   | String              of string  
   | Sequence            of  expre * expre 
-  | Sequence2           of  expre 
-  | StringConcat        of  expre *  expre              (*Trou de typage, mais à part des stringconstant, on est sûr de rien*)
-  | ListConcat          of  expre *  expre 
-  | ListAddElem         of  expre *  expre    (*Beau trou de typage le 2ème argument est une liste*)
+  | StringConcat        of  expre * expre              (*Trou de typage, mais à part des stringconstant, on est sûr de rien*)
+  | ListConcat          of  expre * expre 
+  | ListAddElem         of  expre * expre    (*Beau trou de typage le 2ème argument est une liste*)
   | Times               of  expre * expre 	               (* Product [e1 * e2] *)
-  | Div                 of  expre  * expre
-  | Plus                of  expre *  expre    		       (* Sum [e1 + e2] *)
-  | Minus               of  expre *  expre 	       (* Difference [e1 - e2] *)
+  | Div                 of  expre * expre
+  | Plus                of  expre * expre    		       (* Sum [e1 + e2] *)
+  | Minus               of  expre * expre 	       (* Difference [e1 - e2] *)
   | Equal               of  expre * expre                       (* General comparison [e1 = e2] *)
   | Less                of  expre * expre 		       (* Integer comparison [e1 < e2] *)
  (* | TypeConstr          of 
   | Match               of name *) 
-  | Let                 of  recurs * name list * ty *  expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
-  | If                  of  expre *  expre *  expre        (* Conditional [if e1 then e2 else e3] *)
-  | Fun                 of  name * ty * expre  (* Function [fun f(x:s):t is e] 
+  | Let                 of  recurs * name list * ty * expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
+  | If                  of  expre  * expre *  expre        (* Conditional [if e1 then e2 else e3] *)
+  | Fun                 of  name   * ty    * expre  (* Function [fun f(x:s):t is e] 
                                                                                                   * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                                                                   *)
-  | Apply               of  name * expre 
+  | Apply               of  name  * expre 
   | ApplyExpre          of  expre * (expre list )(* Appelant, paramètres*)
-  | ApplyN 		of  name * (expre list)
+  | ApplyN 		of  name  * (expre list)
   (* Il faut def un apply à n argument*)
   | TypeDeclaration     of ( name * ty) list
+  | ConstructionType    of name * expre list
   | Pas_Encore_gere       
 
 (*********************
@@ -318,7 +318,7 @@ and to_core_type name =
 and untype_type_declaration decl   : ty =
       (*  let on_garde = decl.typ_params, ( List.map (fun (ct1, ct2, loc) -> (untype_core_type ct1, untype_core_type ct2, loc)) decl.typ_cstrs),*)
     match decl.typ_kind with
-    | Ttype_abstract ->  InconnuPasGere
+    | Ttype_abstract ->  Inconnu
     | Ttype_variant list -> (*let get_constr_item c = (match c.ctyp_desc with
                                                         | Ttyp_constr (_path, types , loc) ->   ( match types.txt with
                                                                                                                 |  Longident.Lident nomtype -> to_core_type nomtype
@@ -329,14 +329,14 @@ and untype_type_declaration decl   : ty =
                       let fun_param_variant (s, name, cts, loc) =
                                                      let parametre_variant = L.map untype_core_type cts in
                                                     (match L.length parametre_variant with
-                                                          | 0 -> TType_variant(name.txt,InconnuPasGere)
+                                                          | 0 -> TType_variant(name.txt,Inconnu)
                                                           | 1 -> TType_variant(name.txt,L.hd parametre_variant)
                                                           | n -> TType_variant(name.txt,TTuple parametre_variant)
                                                     ) 
                       in                                                                                       
                       let type_somme = L.map fun_param_variant list in
                       ( match L.length type_somme with
-                        | 0 -> InconnuPasGere
+                        | 0 -> Inconnu
                         | n -> TSum_type type_somme
                       ) 
 
@@ -503,7 +503,8 @@ and untype_expression exp  =
     | Texp_function (label, cases, _)  -> let pats, expressions  = get_pats_expression cases in
                                           (* Pour récup le type, on récupère les infos de typage du premier élem ???
                                            * Après test, on récup que la partie gauche du Tarrow. Faut remonter plus haut pour tout récup*)
-                                          Fun( L.hd (get_variables_names pats), InconnuPasGere, expre_list_to_sequence (L.map untype_expression expressions))
+                                          (*let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in*)
+                                          Fun( L.hd (get_variables_names pats), Inconnu, expre_list_to_sequence (L.map untype_expression expressions))
 
     (* 1er param le nom de la fonction, son typage, etc... : Typedtree.expression
      * 2nd param : La liste des params, il y en a autant que de params : (name * Typedtree.expression option * optional) list*)                                          
@@ -569,23 +570,29 @@ and untype_expression exp  =
                              match cons with
                                         | "[]" -> ListeVide
                                         | "None" -> NoneExp
-                                        | _    -> failwith "contenu de TConstruct pas connu" in
-
+                                        | _    -> failwith "get_valeur_seule :contenu de TConstruct pas connu" in
+                    let match_sous_elem cstr_name args =  (
+                                        match cstr_name with
+                                        | "[]" -> ListeVide
+                                        | s    -> (match s.[0] with
+                                                        | 'A'..'Z' -> (*C'est une construction de type somme *)  
+                                                                        ConstructionType (s, L.map untype_expression args)
+                                                        | _    -> failwith "match from_pervasives_operator : contenu de TConstruct pas connu"
+                                                  )
+                                        ) in
                     (match args with
                      | []    -> get_valeur_seule constructor_desc.cstr_name (*Ou plutôt pas de param, mais bon...*)
-                     | [arg] -> Pas_Encore_gere
+                     | [arg] -> let sous_expre = untype_expression arg in 
+                                let elem_courant = match_sous_elem constructor_desc.cstr_name [arg] in
+                                    elem_courant 
                      | argss ->   let membre_gauche = untype_expression (L.hd args) in
                         let membre_droit  = untype_expression (L.at args 1) in
                         (* On fait quoi si c'est pas un opérateur binaire ?
                          * On match la taille du tableau ?*)
                         (match from_pervasives_operator  constructor_desc.cstr_name membre_gauche membre_droit with
                          | Some op -> op
-                         | None    -> (
-                                        match constructor_desc.cstr_name with
-                                        | "[]" -> ListeVide
-                                        | _    -> failwith "contenu de TConstruct pas connu"
-                                        ) 
-                         )
+                         | None    ->  match_sous_elem   constructor_desc.cstr_name  args              
+                        )
                     )
 
                   (*  let on_garde = (lid, (match args with
@@ -783,7 +790,7 @@ and untype_core_type ct =
       Ttyp_any -> failwith "type any, c'est quoi ???"
     | Ttyp_var s ->  TGenericVar s
     | Ttyp_arrow (label, ct1, ct2)  ->  TArrow(  untype_core_type ct1, untype_core_type ct2) 
-                  (*  let on_garde = (label, untype_core_type ct1, untype_core_type ct2) in InconnuPasGere*)
+                  (*  let on_garde = (label, untype_core_type ct1, untype_core_type ct2) in Inconnu*)
     | Ttyp_tuple list  -> TTuple (L.map untype_core_type list) 
 
 
@@ -803,14 +810,14 @@ and untype_core_type ct =
                     )
     | Ttyp_object list  -> (*let on_garde =  (List.map untype_core_field_type list)   in *) failwith "On ne gère pas les objets pour le moment"
     | Ttyp_class (path, lid, list, labels)  -> (*let on_garde =  (lid, List.map untype_core_type list, labels) in*) failwith "On ne gère pas les objets pour le moment"
-    | Ttyp_alias (ct, s)  -> let on_garde = (untype_core_type ct, s) in InconnuPasGere
+    | Ttyp_alias (ct, s)  -> let on_garde = (untype_core_type ct, s) in Inconnu
 
 
 (*| Type_variant of name * (name * ty list) list *)
-    | Ttyp_variant (list, bool, labels)  -> let on_garde = (L.map untype_row_field list, bool, labels)  in InconnuPasGere
+    | Ttyp_variant (list, bool, labels)  -> let on_garde = (L.map untype_row_field list, bool, labels)  in Inconnu
 
-    | Ttyp_poly (list, ct)  -> let on_garde = (list, untype_core_type ct) in InconnuPasGere
-    | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in InconnuPasGere
+    | Ttyp_poly (list, ct)  -> let on_garde = (list, untype_core_type ct) in Inconnu
+    | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in Inconnu
   
 
 and untype_core_field_type cft =
@@ -853,6 +860,7 @@ and to_base_type  typ sstype =
         | "int"    -> TInt
         | "float"  -> TFloat
         | "bool"   -> TBool
+        | s        -> TLink s
 
 and type_from_ast_type typ =
         let open Types in
@@ -861,7 +869,7 @@ and type_from_ast_type typ =
                        | Some a -> TGenericVar a
                        | None   -> TGenericVar "a")
         | Tarrow (label , type_expr1 , type_expr2 , commutable)  -> TArrow( type_from_ast_type type_expr1, type_from_ast_type type_expr2)
-        | Ttuple type_expr_list                                  -> let on_garde = L.map type_from_ast_type type_expr_list in InconnuPasGere
+        | Ttuple type_expr_list                                  -> let on_garde = L.map type_from_ast_type type_expr_list in Inconnu
         | Tconstr (path, type_expr_list, abbrev_memo_ref)        -> let sous_types = (L.map type_from_ast_type type_expr_list) in
                                                                     let type_ = ( match path with
                                                                                         | Path.Pident id -> id.name
@@ -869,7 +877,7 @@ and type_from_ast_type typ =
                                         
                                                                                 ) in
                                                                      ( match L.length sous_types with
-                                                                     | 0 -> p "pas de sous types"; to_base_type type_ InconnuPasGere
+                                                                          | 0 -> p "pas de sous types"; to_base_type type_ Inconnu
                                                                           | 1 -> to_base_type type_ (L.hd sous_types)
                                                                           | n -> to_base_type type_ (TTuple sous_types)
                                                                         )
@@ -877,13 +885,13 @@ and type_from_ast_type typ =
 
         | Tobject (type_expr,   patht_type_expr_list_option_ref) -> failwith "On gère pas les objets"
         | Tfield  (string, field_kind, type_expr1, type_expr2)   -> failwith "Probablement un type record"
-        | Tnil                                                   -> InconnuPasGere
+        | Tnil                                                   -> Inconnu
         | Tlink                                       type_expr  -> type_from_ast_type type_expr
         | Tsubst  type_expr         (* for copying *)            -> failwith "je connais pas ce type Tsubst"
         | Tvariant  row_desc                                     -> failwith "reste à voir comment marche variant"
         | Tunivar  string_option                                 -> failwith "je connais pas ce type Tunivar"
-        | Tpoly (type_expr, type_expr_list)                      -> let on_garde = L.map type_from_ast_type type_expr_list in InconnuPasGere
-        | Tpackage  (patht , longident_list , type_expr_list)    -> let on_garde = L.map type_from_ast_type type_expr_list in InconnuPasGere
+        | Tpoly (type_expr, type_expr_list)                      -> let on_garde = L.map type_from_ast_type type_expr_list in Inconnu
+        | Tpackage  (patht , longident_list , type_expr_list)    -> let on_garde = L.map type_from_ast_type type_expr_list in Inconnu
 
 
 (*
@@ -908,7 +916,7 @@ and type_desc =
   | Tpackage of Path.t * Longident.t list * type_expr list
   
 type ty =
-  | InconnuPasGere
+  | Inconnu
   | TInt              (* Integers *)
   | TBool             (* Booleans *)
   | TFloat
@@ -919,8 +927,8 @@ type ty =
   | Tlist         of ty
   | TTuple        of ty list
   | TSum_type     of ty list
-  | TType_variant of  (name * ty)   (*Représente un type élément de type somme. ty, car on utilisera un tuple s'il le faut*)
-  | TRecord       of  (name * ty) list
+  | TType_variant of (name * ty)   (*Représente un type élément de type somme. ty, car on utilisera un tuple s'il le faut*)
+  | TRecord       of (name * ty) list
   | TModule       of name (*  Falloir réfléchir à une représentation simple. Pour le moment, on le met de côté*)
   | TArrow        of ty * ty (* Fonctions *)
   | TLink         of name (**)

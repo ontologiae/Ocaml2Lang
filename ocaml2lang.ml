@@ -9,7 +9,7 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst2.cmt";;
+let i,ml = Cmt_format.read "tst10.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -342,7 +342,9 @@ and untype_type_declaration decl   : ty =
 
                       
                       
-      | Ttype_record list -> let on_garde = (List.map (fun (s, name, mut, ct, loc) -> (name, mut, untype_core_type ct, loc) ) list)   in TRecord([])
+      | Ttype_record list ->
+                      let record_list (* (name * ty) list*) =
+                              L.map (fun (s, name, mut, ct, loc) -> name.txt, untype_core_type ct) list    in TRecord(record_list)
     (*,
     decl.typ_private,
      (match decl.typ_manifest with
@@ -606,10 +608,13 @@ and untype_expression exp  =
             None -> None
           | Some exp  -> let on_garde = (untype_expression exp) in None)  in pas_gere()
     | Texp_record (list, expo) ->
+                    (*
         let on_garde = (List.map (fun (lid, _, exp) -> lid, untype_expression exp ) list,
           match expo with
             None -> None
-          | Some exp -> Some (untype_expression exp)) in pas_gere()
+          | Some exp -> Some (untype_expression exp)) in*) pas_gere()
+
+
     | Texp_field (exp, lid, label)  -> let on_garde = (untype_expression exp, lid) in pas_gere()
     | Texp_setfield (exp1, lid, label, exp2) ->
         let on_garde = (untype_expression exp1, lid,
@@ -816,7 +821,7 @@ and untype_core_type ct =
 (*| Type_variant of name * (name * ty list) list *)
     | Ttyp_variant (list, bool, labels)  -> let on_garde = (L.map untype_row_field list, bool, labels)  in Inconnu
 
-    | Ttyp_poly (list, ct)  -> let on_garde = (list, untype_core_type ct) in Inconnu
+    | Ttyp_poly (list, ct)  ->  untype_core_type ct
     | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in Inconnu
   
 

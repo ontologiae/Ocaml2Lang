@@ -164,8 +164,9 @@ type  expre =
   | Let                 of  recurs * name list * ty * expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
   | If                  of  expre  * expre *  expre        (* Conditional [if e1 then e2 else e3] *)
   | Fun                 of  name   * ty    * expre  (* Function [fun f(x:s):t is e] 
-                                                                                                  * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
-                                                                                                  *)
+                                                                                                  * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.*)
+  | RecordElemAffect    of  ( name * ty * expre) list
+                                                                                                  
   | Apply               of  name  * expre 
   | ApplyExpre          of  expre * (expre list )(* Appelant, paramètres*)
   | ApplyN 		of  name  * (expre list)
@@ -608,11 +609,14 @@ and untype_expression exp  =
             None -> None
           | Some exp  -> let on_garde = (untype_expression exp) in None)  in pas_gere()
     | Texp_record (list, expo) ->
+                    let infos = L.map (fun (lid, _, exp) -> get_long_ident lid, Inconnu, untype_expression exp) list
+                    (* ( name * ty * expre) list*)
+                    in RecordElemAffect infos
                     (*
         let on_garde = (List.map (fun (lid, _, exp) -> lid, untype_expression exp ) list,
           match expo with
             None -> None
-          | Some exp -> Some (untype_expression exp)) in*) pas_gere()
+          | Some exp -> Some (untype_expression exp)) in*) 
 
 
     | Texp_field (exp, lid, label)  -> let on_garde = (untype_expression exp, lid) in pas_gere()

@@ -271,7 +271,7 @@ and untype_structure_item item =
         (**Définition d'une exception*)
     | Tstr_exception (id, name, decl) -> let on_garde = (name, untype_exception_declaration decl) in pas_gere()
     | Tstr_exn_rebind (id, name, p, lid) -> let on_garde =  (id, name, p, lid) in pas_gere()
-    | Tstr_module (id, name, mexpr)  ->(* DefModule("Nom à extraire (lident)", untype_module_expr mexpr) *) pas_gere()
+    | Tstr_module (id, name, mexpr) ->  DefModule(name.txt, untype_module_expr mexpr)
     | Tstr_recmodule list -> let on_garde = (List.map (fun (id, name, mtype, mexpr) ->
               name, untype_module_type mtype,
               untype_module_expr mexpr) list) in pas_gere()
@@ -385,7 +385,7 @@ and untype_pattern pat =
     | Tpat_alias (pat, id, name) ->
                     let on_garde = (untype_pattern pat, name) in pas_gere()
     | Tpat_constant cst ->  pas_gere()
-    | Tpat_tuple list ->  let on_garde = (List.map untype_pattern list) in  p "tuple"; pas_gere()
+    | Tpat_tuple list ->  let patterns = L.map untype_pattern list in expre_list_to_sequence patterns
     | Tpat_construct (lid, constructor_desc, args, explicit_arity) ->
                     (**
                      * Vérifier si lid contient pas un opérateur avec from_pervasives_operator
@@ -765,7 +765,7 @@ and untype_module_expr mexpr =
       untype_module_expr m
   | _ ->
       let desc = match mexpr.mod_desc with
-          Tmod_ident (_p, lid)  -> let on_garde = (lid) in pas_gere()
+        | Tmod_ident (_p, lid)  -> (match lid.txt with | Longident.Lident txt -> Var txt | _ -> failwith "Autre chose qu'un longident")(*Douteux...*)
         | Tmod_structure st  -> let on_garde = (to_object_language st) in pas_gere()
         | Tmod_functor (_id, name, mtype, mexpr)  -> let on_garde = (name, untype_module_type mtype, untype_module_expr mexpr) in pas_gere()
         | Tmod_apply (mexp1, mexp2, _)  -> let on_garde = (untype_module_expr mexp1, untype_module_expr mexp2) in pas_gere()

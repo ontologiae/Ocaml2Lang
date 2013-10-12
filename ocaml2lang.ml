@@ -915,7 +915,7 @@ and type_from_ast_type typ =
                        | Some a -> TGenericVar a
                        | None   -> TGenericVar "a")
         | Tarrow (label , type_expr1 , type_expr2 , commutable)  -> TArrow( type_from_ast_type type_expr1, type_from_ast_type type_expr2)
-        | Ttuple type_expr_list                                  -> let on_garde = L.map type_from_ast_type type_expr_list in Inconnu
+        | Ttuple type_expr_list                                  -> TTuple (L.map type_from_ast_type type_expr_list)
         | Tconstr (path, type_expr_list, abbrev_memo_ref)        -> let sous_types = (L.map type_from_ast_type type_expr_list) in
                                                                     let type_ = ( match path with
                                                                                         | Path.Pident id -> id.name

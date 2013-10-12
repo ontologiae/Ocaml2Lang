@@ -162,8 +162,8 @@ type  expre =
  (* | TypeConstr          of 
   | Match               of name *) 
   | Let                 of  recurs * expre list * ty * expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
-  | If                  of  expre  * expre *  expre        (* Conditional [if e1 then e2 else e3] *)
-  | Fun                 of  expre   * ty    * expre  (* Function [fun f(x:s):t is e]*)(* Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
+  | IfThenElse          of  expre  * expre *  expre option        (* Conditional [if e1 then e2 else e3] *)
+  | Fun                 of  expre list   * ty    * expre list (* Function [fun f(x:s):t is e]*)(* Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                       * On remplace le name par un expre, car comme expliqué par Pierre Weiss dans Le Langage Caml, un match e with p1 -> r1 équivaut 
                                                       * à (fun p1 -> r1) e *)
   | TryWith             of  expre  * name  * expre
@@ -546,7 +546,7 @@ and untype_expression exp  =
                                            * Après test, on récup que la partie gauche du Tarrow. Faut remonter plus haut pour tout récup*)
                                           (*let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in*)
                                           let _ = print_endline "================================================= Texp_function" in
-                                          Fun( expre_list_to_sequence(L.map untype_pattern pats), Inconnu, expre_list_to_sequence (L.map untype_expression expressions))
+                                          Fun( L.map untype_pattern pats, Inconnu, L.map untype_expression expressions)
 
     (* 1er param le nom de la fonction, son typage, etc... : Typedtree.expression
      * 2nd param : La liste des params, il y en a autant que de params : (name * Typedtree.expression option * optional) list*)                                          
@@ -662,11 +662,11 @@ and untype_expression exp  =
           untype_expression exp2)  in pas_gere()
     | Texp_array list  -> let on_garde = (List.map untype_expression list) in pas_gere()
     | Texp_ifthenelse (exp1, exp2, expo) ->
-        let on_garde = (untype_expression exp1,
-          untype_expression exp2,
-          match expo with
-            None -> None
-          | Some exp  -> let on_garde = (untype_expression exp) in None)  in pas_gere()
+                    let else_exp_option = (match expo with
+                                        | None -> None
+                                        | Some exp  -> Some (untype_expression exp))  in 
+                    IfThenElse (untype_expression exp1, untype_expression exp2, else_exp_option)
+
     | Texp_sequence (exp1, exp2)  -> Sequence (untype_expression exp1, untype_expression exp2)
     | Texp_while (exp1, exp2)  -> let on_garde = (untype_expression exp1, untype_expression exp2) in pas_gere()
     | Texp_for (id, name, exp1, exp2, dir, exp3) ->

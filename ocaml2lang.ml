@@ -9,7 +9,7 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst10.cmt";;
+let i,ml = Cmt_format.read "tst12.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -163,9 +163,12 @@ type  expre =
   | Match               of name *) 
   | Let                 of  recurs * name list * ty * expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
   | If                  of  expre  * expre *  expre        (* Conditional [if e1 then e2 else e3] *)
-  | Fun                 of  name   * ty    * expre  (* Function [fun f(x:s):t is e] 
-                                                                                                  * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.*)
+  | Fun                 of  expre   * ty    * expre  (* Function [fun f(x:s):t is e]*)(* Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
+                                                      * On remplace le name par un expre, car comme expliqué par Pierre Weiss dans Le Langage Caml, un match e with p1 -> r1 équivaut 
+                                                      * à (fun p1 -> r1) e *)
+  | TryWith             of  expre  * name  * expre
   | RecordElemAffect    of  ( name * ty * expre) list
+  | PatternMatch        of expre * ( expre * ty * expre ) list
                                                                                                   
   | Apply               of  name  * expre 
   | ApplyExpre          of  expre * (expre list )(* Appelant, paramètres*)
@@ -221,6 +224,7 @@ and get_variables_names pats =
         let get_nom_var pat =
                match pat with
                | {pat_desc  = Tpat_var ({name = nom_var; _},_);} -> nom_var
+(*               | {pat_desc  = Tpat_construct*)
                | _ -> failwith "pattern pat_desc pas définition variable" in
         L.map get_nom_var pats
 (*TODO renvoyer aussi le type !!*)
@@ -250,15 +254,14 @@ and untype_structure_item item =
      * Question, que ce passe-t il si on a un in derrière ?
      * Réponse : ça devient un Tstr_eval qui contient un let (ahh la bidouille !)*)
 
-    | Tstr_value (Nonrecursive, list)  -> let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
+    | Tstr_value (isrec, list)  -> 
+                                          let rrec     = (match isrec with | Nonrecursive -> NonRec | Recursive -> Rec) in
+                                          let _        =  p ("Tstr_value Nonrecursive pas obligatoirement une fonction") in
                                           let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
                                           let pats, expressions    = get_pats_expression list in
                                           let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in
-                                          Let (NonRec, get_variables_names pats, typage, L.map untype_expression expressions)
+                                          Let (rrec, get_variables_names pats, typage, L.map untype_expression expressions)
                                           
-    | Tstr_value (Recursive, list) -> let _        =  p ("Tstr_value Recursive  obligatoirement une fonction") in
-                                      let on_garde = (List.map (fun (pat, exp) -> untype_pattern pat, untype_expression exp) list) in pas_gere()
-
 
     | Tstr_primitive (id, name, v) -> let on_garde = (name, untype_value_description v)  in pas_gere()
 
@@ -361,15 +364,15 @@ and untype_exception_declaration decl =
 
 
 
-
+(** les Tpat servent à représenter les pattern à gauche de la flèche dans le pattern matching*)
 and untype_pattern pat =
-  let desc =
+(*  let desc =
   match pat with
   { pat_extra=[Tpat_unpack, _]; pat_desc = Tpat_var (_,name) } ->  pas_gere()
     | { pat_extra=[Tpat_type (path, lid), _] } ->  pas_gere()
     | { pat_extra= (Tpat_constraint ct, _) :: rem } ->
                     let on_garde =  (untype_pattern { pat with pat_extra=rem }, untype_core_type ct) in pas_gere()
-    | _ ->
+    | _ ->*)
     match pat.pat_desc with
       Tpat_any -> Pas_Encore_gere
     | Tpat_var (id, name) ->
@@ -377,20 +380,54 @@ and untype_pattern pat =
           match (Ident.name id).[0] with
             'A'..'Z' ->
              (* p ("def ?? ? "^name) ;*)  pas_gere()  
-          | _ ->
-               (*p ("def var ? "^name) ;*)  pas_gere() 
+          | _ -> Var (Ident.name id)
         end
     | Tpat_alias (pat, id, name) ->
                     let on_garde = (untype_pattern pat, name) in pas_gere()
     | Tpat_constant cst ->  pas_gere()
     | Tpat_tuple list ->  let on_garde = (List.map untype_pattern list) in  p "tuple"; pas_gere()
-    | Tpat_construct (lid, _, args, explicit_arity) ->
-                    let on_garde = (lid,
+    | Tpat_construct (lid, constructor_desc, args, explicit_arity) ->
+                    (**
+                     * Vérifier si lid contient pas un opérateur avec from_pervasives_operator
+                     * Dans ce cas, on 2 arguments
+                     * On fait quoi si c un op unaire ?...
+                     * Si contient pas, c'est un apply
+                     * *)
+                     let get_valeur_seule cons = 
+                             match cons with
+                                        | "[]" -> ListeVide
+                                        | "None" -> NoneExp
+                                        | _    -> failwith "get_valeur_seule :contenu de TConstruct pas connu" in
+                    let match_sous_elem cstr_name args =  (
+                                        match cstr_name with
+                                        | "[]" -> ListeVide
+                                        | s    -> (match s.[0] with
+                                                        | 'A'..'Z' -> (*C'est une construction de type somme *)  
+                                                                        ConstructionType (s, L.map untype_pattern args)
+                                                        | _    -> failwith "match from_pervasives_operator : contenu de TConstruct pas connu"
+                                                  )
+                                        ) in
+                    (match args with
+                     | []    -> get_valeur_seule constructor_desc.cstr_name (*Ou plutôt pas de param, mais bon...*)
+                     | [arg] -> let sous_expre = untype_pattern arg in 
+                                let elem_courant = match_sous_elem constructor_desc.cstr_name [arg] in
+                                    elem_courant 
+                     | argss ->   let membre_gauche = untype_pattern (L.hd args) in
+                        let membre_droit  = untype_pattern (L.at args 1) in
+                        (* On fait quoi si c'est pas un opérateur binaire ?
+                         * On match la taille du tableau ?*)
+                        (match from_pervasives_operator  constructor_desc.cstr_name membre_gauche membre_droit with
+                         | Some op -> op
+                         | None    ->  match_sous_elem   constructor_desc.cstr_name  args              
+                        )
+                    )
+
+                (*    let on_garde = (lid,
           (match args with
               [] -> None
             | args -> let on_garde = (List.map untype_pattern args), pat.pat_loc in Some on_garde
           ), 
-          explicit_arity) in pas_gere()
+          explicit_arity) in pas_gere()*)
     | Tpat_variant (label, pato, _) ->
                     let on_garde = (label, match pato with
             None -> None
@@ -400,8 +437,8 @@ and untype_pattern pat =
     | Tpat_array list -> let on_garde = (List.map untype_pattern list) in pas_gere()
     | Tpat_or (p1, p2, _) -> let on_garde = (untype_pattern p1, untype_pattern p2) in pas_gere()
     | Tpat_lazy p -> let on_garde = (untype_pattern p) in pas_gere()
-  in
-  let on_garde = desc, pat.pat_loc in (*p "pattern"*) Pas_Encore_gere
+ (* in
+  let on_garde = desc, pat.pat_loc in (*p "pattern"*) Pas_Encore_gere*)
 
 and option f x = match x with None -> None | Some e  -> let on_garde = (f e) in Some on_garde
 
@@ -494,6 +531,7 @@ and untype_expression exp  =
     | Texp_let (rec_flag, list_exp_du_let, expression_suite)  -> 
                 let p,e = get_pats_expression list_exp_du_let in
                 let typage = let pat = L.hd p in type_from_ast_type pat.pat_type in
+                let _ = print_endline "================================================= Texp_let" in
                     Sequence(Let (rec_to_rec rec_flag, get_variables_names p, typage, L.map untype_expression e), untype_expression expression_suite)
                  
 
@@ -507,7 +545,8 @@ and untype_expression exp  =
                                           (* Pour récup le type, on récupère les infos de typage du premier élem ???
                                            * Après test, on récup que la partie gauche du Tarrow. Faut remonter plus haut pour tout récup*)
                                           (*let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in*)
-                                          Fun( L.hd (get_variables_names pats), Inconnu, expre_list_to_sequence (L.map untype_expression expressions))
+                                          let _ = print_endline "================================================= Texp_function" in
+                                          Fun( expre_list_to_sequence(L.map untype_pattern pats), Inconnu, expre_list_to_sequence (L.map untype_expression expressions))
 
     (* 1er param le nom de la fonction, son typage, etc... : Typedtree.expression
      * 2nd param : La liste des params, il y en a autant que de params : (name * Typedtree.expression option * optional) list*)                                          
@@ -557,13 +596,11 @@ and untype_expression exp  =
               | Some exp -> (label, untype_expression exp) :: list
           ) list [])  in pas_gere()*)
     | Texp_match (exp, list, _) ->
-        let on_garde = (untype_expression exp,
-          List.map (fun (pat, exp) ->
-              untype_pattern pat, untype_expression exp) list)  in  pas_gere()
+                    let patterns = L.map (fun (p,e) -> untype_pattern p, Inconnu, untype_expression e) list in
+                    PatternMatch( untype_expression exp, patterns)
     | Texp_try (exp, list) ->
-        let on_garde = (untype_expression exp,
-          List.map (fun (pat, exp) ->
-              untype_pattern pat, untype_expression exp) list) in pas_gere()
+        TryWith (untype_expression exp, "TODO", 
+          expre_list_to_sequence (L.map (fun (_, exp) -> untype_expression exp) list))
     | Texp_tuple list  -> let on_garde = (List.map untype_expression list) in pas_gere()
 
     (* Texp_construct of Longident.t loc * constructor_description * expression list * bool 
@@ -630,7 +667,7 @@ and untype_expression exp  =
           match expo with
             None -> None
           | Some exp  -> let on_garde = (untype_expression exp) in None)  in pas_gere()
-    | Texp_sequence (exp1, exp2)  -> let on_garde = (untype_expression exp1, untype_expression exp2) in pas_gere()
+    | Texp_sequence (exp1, exp2)  -> Sequence (untype_expression exp1, untype_expression exp2)
     | Texp_while (exp1, exp2)  -> let on_garde = (untype_expression exp1, untype_expression exp2) in pas_gere()
     | Texp_for (id, name, exp1, exp2, dir, exp3) ->
         let on_garde = (name,
@@ -976,7 +1013,7 @@ type ty =
 #trace get_variable_name;;
 #trace expre_list_to_sequence;;
 #trace type_from_ast_type;;
-
+#trace get_variables_names;; 
 
 
 (*

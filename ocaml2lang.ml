@@ -161,7 +161,7 @@ type  expre =
   | Less                of  expre * expre 		       (* Integer comparison [e1 < e2] *)
  (* | TypeConstr          of 
   | Match               of name *) 
-  | Let                 of  recurs * name list * ty * expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
+  | Let                 of  recurs * expre list * ty * expre list (*une expre par variable: mettre une contrainte d'égalité ?*)
   | If                  of  expre  * expre *  expre        (* Conditional [if e1 then e2 else e3] *)
   | Fun                 of  expre   * ty    * expre  (* Function [fun f(x:s):t is e]*)(* Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
                                                       * On remplace le name par un expre, car comme expliqué par Pierre Weiss dans Le Langage Caml, un match e with p1 -> r1 équivaut 
@@ -260,7 +260,7 @@ and untype_structure_item item =
                                           let _        =  p ("Tstr_value lengh :"^(string_of_int (L.length list))) in
                                           let pats, expressions    = get_pats_expression list in
                                           let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in
-                                          Let (rrec, get_variables_names pats, typage, L.map untype_expression expressions)
+                                          Let (rrec, L.map untype_pattern pats, typage, L.map untype_expression expressions)
                                           
 
     | Tstr_primitive (id, name, v) -> let on_garde = (name, untype_value_description v)  in pas_gere()
@@ -532,7 +532,7 @@ and untype_expression exp  =
                 let p,e = get_pats_expression list_exp_du_let in
                 let typage = let pat = L.hd p in type_from_ast_type pat.pat_type in
                 let _ = print_endline "================================================= Texp_let" in
-                    Sequence(Let (rec_to_rec rec_flag, get_variables_names p, typage, L.map untype_expression e), untype_expression expression_suite)
+                    Sequence(Let (rec_to_rec rec_flag, L.map untype_pattern p, typage, L.map untype_expression e), untype_expression expression_suite)
                  
 
     (* DÉFINITION D'UNE FONCTION

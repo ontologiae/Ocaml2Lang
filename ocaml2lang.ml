@@ -133,37 +133,6 @@ let rec string_to_type e =
 
 
 
-(*
-
-(* On ne gère que les opérateurs sur entiers, chaines et listes. TODO Float, Bool*)  
-type _ expre =
-  | Var                 : name    -> name expre          		(* Variable *)
-  | Int                 : int     -> int expre         		(* Non-negative integer constant *)
-  | Bool                : bool    -> bool expre        		(* Boolean constant *)
-  | Float               : float   -> float expre
-  | Char                : char    -> char expre
-  | String              : string  -> string expre
-  | Sequence            : _ expre * _ expre -> ( _ * _ ) expre
-  | Sequence2           : _ expre list       -> ( _ list ) expre
-  | StringConcat        : _ expre * _ expre -> ( _ * _ ) expre                                 (*Trou de typage, mais à part des stringconstant, on est sûr de rien*)
-  | ListConcat          : _ expre * _ expre -> ( _ * _ ) expre
-  | ListAddElem         : _ expre * _ expre -> ( _ * _ ) expre                             (*Beau trou de typage le 2ème argument est une liste*)
-  | Times               : int expre * int expre -> ( int * int ) expre 		               (* Product [e1 * e2] *)
-  | Plus                : int expre * int expre -> ( int * int ) expre   		       (* Sum [e1 + e2] *)
-  | Minus               : int expre * int expre -> ( int * int ) expre  		       (* Difference [e1 - e2] *)
-  | Equal               : 'a expre * 'a expre -> ( 'a * 'a ) expre	                       (* General comparison [e1 = e2] *)
-  | Less                : int expre * int expre -> ( int * int ) expre    		       (* Integer comparison [e1 < e2] *)
- (* | TypeConstr          : 
-  | Match               : name *) 
-  | Let                 : name * _ expre -> (name * _) expre 
-  | If                  : bool expre * _ expre * _ expre -> (bool * _ * _) expre	       (* Conditional [if e1 then e2 else e3] *)
-  | Fun                 : name * ty * ty * 'a expre -> ( name * ty * ty * 'a) expre (* Function [fun f(x:s):t is e] 
-                                                                                                  * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
-                                                                                                  *)
-  | Apply               : name * 'b expre -> ( name * 'b ) expre
-  | ApplyBin 		: name  * _ expre * _ expre -> ( name * _ * _) expre  
-  | Pas_Encore_gere       
-*) 
 type recurs = Rec | NonRec
 type  expre =
   | ListeVide
@@ -506,8 +475,10 @@ and untype_pattern pat =
                     let on_garde = (label, match pato with
             None -> None
           | Some pat  -> let on_garde = (untype_pattern pat) in Some on_garde) in pas_gere()
+          (*TODO : gérer le pattern matching de record*)
     | Tpat_record (list, closed) ->
                     let on_garde = (List.map (fun (lid, _, pat) -> lid, untype_pattern pat) list, closed) in pas_gere()
+                    (*TODO : gérer le pattern matching des tableaux*)
     | Tpat_array list -> let on_garde = (List.map untype_pattern list) in pas_gere()
     | Tpat_or (p1, p2, _) -> let on_garde = (untype_pattern p1, untype_pattern p2) in pas_gere()
     | Tpat_lazy p -> let on_garde = (untype_pattern p) in pas_gere()
@@ -545,7 +516,7 @@ and get_long_ident lid =
         )
 
 
-
+(*
 and get_nom_valeur  tident =
         match tident with
         | Texp_ident (path, lid,_) -> (match lid.txt with
@@ -555,7 +526,7 @@ and get_nom_valeur  tident =
         )
         | _ -> failwith "on arrive pas à trouver le nom de la fonction"
 
-
+*)
 and from_pervasives_operator str e1 e2 =
         match str with
         | "^" -> Some (StringConcat (e1,e2))
@@ -565,6 +536,7 @@ and from_pervasives_operator str e1 e2 =
         | "/" -> Some (Div (e1,e2))
         | "::" -> Some (ListAddElem (e1,e2))
         | "@"  -> Some (ListConcat (e1,e2))
+        | "="  -> Some (Equal(e1,e2))
         | _    -> None
 
 
@@ -1088,6 +1060,38 @@ type ty =
 #trace expre_list_to_sequence;;
 #trace type_from_ast_type;;
 #trace get_variables_names;; 
+
+(*
+
+(* On ne gère que les opérateurs sur entiers, chaines et listes. TODO Float, Bool*)  
+type _ expre =
+  | Var                 : name    -> name expre          		(* Variable *)
+  | Int                 : int     -> int expre         		(* Non-negative integer constant *)
+  | Bool                : bool    -> bool expre        		(* Boolean constant *)
+  | Float               : float   -> float expre
+  | Char                : char    -> char expre
+  | String              : string  -> string expre
+  | Sequence            : _ expre * _ expre -> ( _ * _ ) expre
+  | Sequence2           : _ expre list       -> ( _ list ) expre
+  | StringConcat        : _ expre * _ expre -> ( _ * _ ) expre                                 (*Trou de typage, mais à part des stringconstant, on est sûr de rien*)
+  | ListConcat          : _ expre * _ expre -> ( _ * _ ) expre
+  | ListAddElem         : _ expre * _ expre -> ( _ * _ ) expre                             (*Beau trou de typage le 2ème argument est une liste*)
+  | Times               : int expre * int expre -> ( int * int ) expre 		               (* Product [e1 * e2] *)
+  | Plus                : int expre * int expre -> ( int * int ) expre   		       (* Sum [e1 + e2] *)
+  | Minus               : int expre * int expre -> ( int * int ) expre  		       (* Difference [e1 - e2] *)
+  | Equal               : 'a expre * 'a expre -> ( 'a * 'a ) expre	                       (* General comparison [e1 = e2] *)
+  | Less                : int expre * int expre -> ( int * int ) expre    		       (* Integer comparison [e1 < e2] *)
+ (* | TypeConstr          : 
+  | Match               : name *) 
+  | Let                 : name * _ expre -> (name * _) expre 
+  | If                  : bool expre * _ expre * _ expre -> (bool * _ * _) expre	       (* Conditional [if e1 then e2 else e3] *)
+  | Fun                 : name * ty * ty * 'a expre -> ( name * ty * ty * 'a) expre (* Function [fun f(x:s):t is e] 
+                                                                                                  * Si on a une fonction a plusieurs paramètre, elle est réécrite comme une succession de fonctions.
+                                                                                                  *)
+  | Apply               : name * 'b expre -> ( name * 'b ) expre
+  | ApplyBin 		: name  * _ expre * _ expre -> ( name * _ * _) expre  
+  | Pas_Encore_gere       
+*) 
 
 
 (*

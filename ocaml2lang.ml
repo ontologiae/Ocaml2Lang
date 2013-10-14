@@ -106,6 +106,33 @@ type ty =
   | TArrow        of ty * ty (* Fonctions *)
   | TLink         of name (**)
 
+
+let rec string_to_type e =
+        match e with
+        | TInt          -> "int"
+        | TBool         -> "bool"
+        | TFloat        -> "float"
+        | TString       -> "string"
+        | TChar         -> "char"
+        | TGenericVar v -> "'"^v
+        | TGeneric(l,t) -> (match L.length l with
+                                | 0 -> failwith "Houston we've got a problem : generic vide"
+                                | 1 -> (string_to_type (L.hd l))^" "^(string_to_type t)
+                                | n -> "( "^(String.concat "," (L.map string_to_type l))^" ) "^(string_to_type t)
+                           )
+        | Tlist t       -> (string_to_type t)^" list"
+        | TTuple l      -> String.concat " * " (L.map string_to_type l)
+        | TSum_type l   -> "\n\t| "^(String.concat "\n\t| " (L.map string_to_type l))
+        | TType_variant (n,t) -> n^" of "^(string_to_type t)
+        | TRecord l     -> let unrecord (n,t) = n^" : "^(string_to_type t) in
+                            " { "^(String.concat ";" (L.map unrecord l))^" } "
+        | TModule n     -> "module "^n
+        | TArrow(t1,t2) -> (string_to_type t1)^" -> "^(string_to_type t2)
+        | TLink n       -> n
+
+
+
+
 (*
 
 (* On ne gère que les opérateurs sur entiers, chaines et listes. TODO Float, Bool*)  
@@ -172,11 +199,58 @@ type  expre =
                                                                                                   
   | Apply               of  name  * expre 
   | ApplyExpre          of  expre * (expre list )(* Appelant, paramètres*)
-  | ApplyN 		of  name  * (expre list)
   (* Il faut def un apply à n argument*)
   | TypeDeclaration     of ( name * ty) list
   | ConstructionType    of name * expre list
   | Pas_Encore_gere       
+
+
+
+
+ let rec to_string e =
+         match e with
+     | ListeVide                -> "[]"
+     | NoneExp                  -> "None"
+     | Var n                    -> n
+     | DefModule (m,e)          -> "module "^m^" = "^(to_string e)
+     | ModuleCall(n,n2)         -> n^"."^n2
+     | Int i                    -> string_of_int i
+     | Bool b                   -> string_of_bool b
+     | Float f                  -> string_of_float f
+     | Char c                   -> "'"^(String.make 1 c)^"'"
+     | String s                 -> "\""^s^"\""
+     | Sequence (e1,e2)         -> (to_string e1)^" ; \n"^(to_string e2)
+     | StringConcat (e1,e2)     -> (to_string e1)^"^"^(to_string e2)
+     | ListConcat (e1,e2)       -> (to_string e1)^"@"^(to_string e2)
+     | ListAddElem (e1,e2)      -> (to_string e1)^"::"^(to_string e2)
+     | Times (e1,e2)            -> (to_string e1)^" * "^(to_string e2)
+     | Div (e1,e2)              -> (to_string e1)^" / "^(to_string e2)
+     | Plus (e1,e2)             -> (to_string e1)^" + "^(to_string e2)
+     | Minus (e1,e2)            -> (to_string e1)^" - "^(to_string e2)
+     | Equal (e1,e2)            -> (to_string e1)^" = "^(to_string e2)
+     | Less (e1,e2)             -> (to_string e1)^" < "^(to_string e2)
+     | Let (r,el1,t,el2)        -> let srec = (match r with | Rec -> "rec" | _ -> "") in
+                                   "let "^srec^" "^(String.concat "," (L.map to_string el1))^" ==== "^(String.concat "," (L.map to_string el2))
+     | IfThenElse (i,t,Some e)  -> "if "^(to_string i)^" then "^(to_string t)^" else "^(to_string e)
+     | Fun(e1,t,e2)             -> (match L.length e1 with
+                                        | 1 -> to_string (L.hd e1)^" != "^to_string (L.hd e2)
+                                        | n -> let unmatch (ee1,ee2) = "| "^(to_string ee1)^" -> "^(to_string ee2) in
+                                                        "function \n"^(String.concat "\n\t" (L.map unmatch (L.combine e1 e2)))
+                                   )
+     | TryWith (e1,n,e2)        -> "try "^(to_string e1)^" with "^n^" -> "^(to_string e2)
+     | RecordElemAffect l       -> "{ "^(String.concat ";" (L.map (fun (n,_,ee) -> n ^ " = "^(to_string ee) ) l ))^" } "
+     | PatternMatch     (e, l)  -> let tet = "match "^(to_string e)^" with \n\t" in
+                                   let pat (e1,t,e2) = "| "^(to_string e1)^" -> "^(to_string e2) in
+                                   tet^(String.concat "\n\t" (L.map pat l))
+     | Apply            (n,e)   -> n^" "^(to_string e)
+     | ApplyExpre       (e,l)   -> (to_string e)^" "^(String.concat " " (L.map to_string l))
+     | TypeDeclaration  l       -> let affiche_type (n,t) = n^" = "^(string_to_type t) in
+                                     "type "^(String.concat "\nand" (L.map affiche_type l))
+     | ConstructionType (n,l)   -> n^"  "^(String.concat " " (L.map to_string l)) (*TODO : si plusieurs arg, parenthèse*)
+     | Pas_Encore_gere          -> "Pas encore géré !!!!"
+
+
+
 
 (*********************
  *

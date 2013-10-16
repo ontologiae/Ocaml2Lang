@@ -15,7 +15,8 @@ type  objexpre =
   | Bool                of bool
   | Float               of float   
   | Char                of char    
-  | String              of string  
+  | String              of string
+  | IsInstanceOf        of  objexpre (*renvoi un booléen*)
   | SequenceList        of  objexpre list
   | StringConcat        of  objexpre * objexpre              (*Concaténation de chaîne*)
   | ListConcat          of  objexpre * objexpre              (*Concaténation de liste*)
@@ -59,7 +60,28 @@ let objexpre_of_camlexpre = This;;
          *
          *
          * 1. Faire un dictionnaire des types présents, de sorte que les Tlink renvoient vers quelques chose
-         * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme
+         * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme.
+         *      Exemple :
+                 *      type expre = 
+                         *      | Int of int
+                         *      | Plus  of expre * expre
+                         *      | Moins of expre * expre
+                         *
+                         *      Deviens, en pseudo code objet :
+                                 *     Class expre =
+                                         *     currentValue
+                                         *
+                                 *    Class Int inherit expre
+                                 *     value of int
+                                 *
+                                 *     Class Plus inherit expre
+                                 *     value1 of expre
+                                 *     value2 of expre
+                                 *
+                                 *     Class Moins inherit expre
+                                 *     value1 of expre
+                                 *     value2 of expre
+                                
          * 3. Dès qu'un record est créé, on créé les objets correspondants
          * 4. Prégénérer des fonctions à plusieurs variables, quand on a de l'ordre supérieur. Si on détecte un appel non total dans le code, il faudra génrer un autre version de la fonction.
          *
@@ -99,6 +121,14 @@ let objexpre_of_camlexpre = This;;
          *    - Transformation des appels de fonctions si appels totales ou non total
          *    - Recherche dans le dictionnaire, en fonction du langage cible, de l'écriture correspondante de la fonction (mais je crois que ça va finir, que je vais générer BatList dans chaque langage,
          *    et faire croire que c'est un port de underscore...
-         *    - 
+         *    - Pattern matching généré en fonction des objets créés précédements
+         *      - Si c'est une liste, on doit déterminer 2 choses pour chaque pattern :
+                 * La taille de la liste qu'on pattern match : un::deux::queue a minimum 2 éléments. MAIS (sinon ça serait pas drôle), si on a pattern matché avant un::deux::[] c'est minimum 3
+                   éléments. Cela dit, comme en ocaml à l'exécution, le elseif fera son boulot puisqu'il sera exécuté avant...
+                   De même un::deux::[] c'est EXACTEMENT 2 éléments
+                 * La présence de constante ou de précision concernant l'élément, genre un::"deux"::queue
+                - Si c'est un type somme, on va jouer avec des isInstanceOf : Si on doit matcher Plus(Moins(a,b),c) on va faire
+                  IsInstanceOf(obj) == Plus and IsInstanceOf(obj.value1) == Moins et dans la fonction, obj.value1.value1 = a, obj.value1.value2 = b, obj.value2 = c
+
          * *)
 

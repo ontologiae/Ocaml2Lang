@@ -9,7 +9,8 @@ open Asttypes
 open Typedtree
 open Parsetree
 
-let i,ml = Cmt_format.read "tst12.cmt";;
+
+let i,ml = Cmt_format.read "tst1.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -217,6 +218,15 @@ type  expre =
                                      "type "^(String.concat "\nand" (L.map affiche_type l))
      | ConstructionType (n,l)   -> n^"  "^(String.concat " " (L.map to_string l)) (*TODO : si plusieurs arg, parenthèse*)
      | Pas_Encore_gere          -> "Pas encore géré !!!!"
+
+
+(*********************
+ *
+ *
+ * AST CIBLE
+ *
+ * *******************)
+
 
 
 

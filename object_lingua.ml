@@ -1,4 +1,8 @@
 module H = BatHashtbl;;
+module O = BatOption;;
+open Parse_ocaml;;
+
+(* LE TODO de progression est en bas*)
 
 
 type name = string
@@ -35,7 +39,7 @@ type  objexpre =
   | IfThenElse          of  objexpre  * objexpre *  objexpre option        (* Conditional [if e1 then e2 else e3] *)
   | ForC                of  objexpre  * objexpre * objexpre * objexpre (*for( <objexpre>; <objexpre>; <objexpre>) <objexpre>*)
   | ForTo               of  int    * int   * objexpre
-  | ForEach             of  expre * expre (*ce sur quoi on itère. L'expression d'itération*)
+  | ForEach             of  objexpre * objexpre (*ce sur quoi on itère. L'expression d'itération*)
   | FunDef              of  name * name list * objexpre list
   | Funcall             of  name * objexpre list
   | TryWith             of  objexpre  * name  * objexpre
@@ -43,6 +47,8 @@ type  objexpre =
   | MethodCall          of  objexpre * name * objexpre list (*Receveur, méthode, arguments*)
 
   | ApplyExpre          of  objexpre * (objexpre list )(* Appelant, paramètres*)
+  | ClassDef            of  name * name option (* héritage *) *  objexpre list
+  | New                 of  name * objexpre list (*les arguments du constructeur*)
   (* Il faut def un apply à n argument*)
 
 
@@ -53,13 +59,153 @@ let astsimple = [Let (NonRec, [Var "funtst2"], TArrow (TString, TArrow (TString,
    [Fun ([Var "a"], Inconnu, [Fun ([Var "b"], Inconnu, [Fun ([Var "c"], Inconnu, [StringConcat (Var "a", StringConcat (Var "b", Var "c"))])])])])];;
 
 
-let objexpre_of_camlexpre = This;;
+let ast_def_type = [TypeDeclaration [("expr", TSum_type [TType_variant ("Int", TInt); TType_variant ("Plus", TTuple [TLink "expr"; TLink "expr"]); TType_variant ("Moins", TTuple [TLink "expr"; TLink "expr"])])]; 
+Let (NonRec, [Var "a"], TLink "expr", [ConstructionType ("Moins",
+[ConstructionType ("Plus", [ConstructionType ("Int", [Int 6]); ConstructionType
+("Int", [Int 9])]); ConstructionType ("Int", [Int 5])])])];;
+
+
+let ast_record = [TypeDeclaration [("enregistrement", TRecord [("a", TInt); ("b", TString); ("c", TChar)])];
+   Let (NonRec, [Var "e"], TLink "enregistrement", [RecordElemAffect [("a", Inconnu, Int 8); ("b", Inconnu, String "test contenu chaine dans record"); ("c", Inconnu, Char 'R')]])]
+
+let dico_of_camlexpre e = 
+        let get_type_decl ex = (match ex with
+                                | TypeDeclaration l -> Some l
+                                | _                 -> None
+                ) in
+        let types = L.map O.get (L.filter O.is_some (L.map get_type_decl e)) in
+        let liste_Nom_Types = L.unique (L.flatten types) in
+        let result = { dico = H.create 128 } in        
+        let _ = L.iter (fun (n,t) -> H.add result.dico n t) liste_Nom_Types in
+        result
+        (*On part du principe que la déclaration des types est dans les têtes.
+         * Après faudra parcourir l'AST..*)
+
+
+let base_type_to_object_base_type t : objexpre =
+        match t with
+        | TInt -> Int 0
+        | TChar -> Char '0'
+        | TString -> String ""
+        | _ -> failwith "à finir"
+
+(*On gère pas les tuples, et pour chaque tuple, soit on les flatten, soit on créé un objet pour lui.
+ * Pas question d'utiliser des tuples as_is, car on ne sait pas si le langage cible les gèrent
+ * Autre gros problème : *)
+let base_type_to_classe_props tt =
+        let rec func i t = 
+                let number = string_of_int i in
+                match t with
+                | TInt           -> [VarAffect("value"^number, Int 0)]
+                | TChar          -> [VarAffect("value"^number, Char '0')]
+                | TString        -> [VarAffect("value"^number, String "")]
+                | TLink  name    -> [VarAffect("value"^number, New(name,[]))]
+                | TTuple l       -> L.flatten (L.mapi (fun i -> fun a -> (func (i+1) a)) l) 
+                | _ -> failwith "à finir"
+        in func 0 tt
+
+let base_type_liste_record_to_class tlist =
+        let rec func n t =
+                 match t with
+                | TInt           -> [VarAffect(n, Int 0)]
+                | TChar          -> [VarAffect(n, Char '0')]
+                | TString        -> [VarAffect(n, String "")]
+                | TLink  name    -> [VarAffect(n, New(name,[]))]
+                | TTuple l       -> L.flatten (L.map (func n)  l)
+                | _ -> failwith "à finir" in
+        L.flatten (L.map (fun (n,t) -> func n t) tlist)
+
+
+
+
+
+let object_of_type t =
+        let nom_type,typ_decl = t in
+        let mk_obj l nt = 
+                let process_variant v = ( match v with
+                | TType_variant (n,tt) -> ClassDef(n, Some nt,  base_type_to_classe_props tt (*TODO*))
+                | _ -> failwith "autre cas doit pas arriver") in
+            L.map process_variant l
+        in
+        match typ_decl with
+        | TSum_type l -> ( ClassDef(nom_type, None, []))::(mk_obj l nom_type)
+        | TRecord   l -> [ ClassDef(nom_type, None, base_type_liste_record_to_class l)]
+        | _     -> failwith "pas géré"
+
+
+let make_function_list e =
+        let process_one ee = match ee with
+                | Let ( isec, params, TArrow(input_type,output_type), member) as letf -> Some letf
+                | _                                                                   -> None
+        in L.map O.get (L.filter O.is_some (L.map process_one e))
+
+
+let rec count_parameter_cardinal tt =
+        match tt with
+        | TArrow(a,b) -> 1 + count_parameter_cardinal(a) + count_parameter_cardinal(b)
+        | _           -> 0
+
+
+let rec to_expre (e : Parse_ocaml.expre) = match e with
+        | Parse_ocaml.StringConcat (a,b)    -> StringConcat(to_expre a, to_expre b)
+        | Int a                 -> Int a
+        | Char c                -> Char c
+        | String s              -> String s
+        | StringConcat (e1,e2)  -> StringConcat (to_expre e1,to_expre e2)   
+        | ListConcat (e1,e2)    -> ListConcat (to_expre e1, to_expre e2)     
+        | ListAddElem (e1,e2)   -> ListAddElem (to_expre e1,to_expre e2)    
+        | Times (e1,e2)         -> Times (to_expre e1,to_expre e2)          
+        | Div (e1,e2)           -> Div (to_expre  e1, to_expre e2)            
+        | Plus (e1,e2)          -> Plus (to_expre e1, to_expre e2)           
+        | Minus (e1,e2)         -> Minus (to_expre e1, to_expre e2)          
+        | Equal (e1,e2)         -> Equal (to_expre e1, to_expre e2)          
+        | Less (e1,e2)          -> Less (to_expre e1,to_expre e2)
+        | Let(isrec,param::[] (*une seule fonction*),TArrow(input_type,output_type), member) as letf -> uncurrify_function param letf
+        | Var a                 -> Var a
+        | _     -> failwith "pas encore géré"
+
+
+
+and uncurrify_function param_nom_fonc ef =
+        (*1er cas : simple : aucun calcul intermédiaire dans les premières fonctions
+         *      On va jusqu'au bout, en récursif, en empilant, dans une liste, les paramètres
+         *      On fait de même avec le typage
+         *      On combine les deux listes en couples (nom,type) *)
+        let rec liste_typ typ = match typ with
+        | TArrow( input, output) -> input::(liste_typ output)
+        | portnawak              -> portnawak::[] in
+        (*L.take ((L.length l) -1) l pour la liste sans le dernier*)
+        let isrec, params, type_let, member =
+                match ef with
+                | Let ( isrec, param, ttl, member) -> isrec, param, ttl, member
+                | _ -> failwith "on ne doit recevoir que des fonctions" in
+        let parameter_cardinal = count_parameter_cardinal type_let in
+        let rec find_corpse m = match m with
+                             | [Fun (_,_,mmm)] -> find_corpse mmm
+                             | m              ->  m in
+        let rec find_params p = match p with
+                                 | [Fun (params,_,mmm)] -> params@(find_params mmm)
+                                 | _                    -> [] in
+        let e_to_string e = match e with
+                                    | Parse_ocaml.Var c -> c
+                                    | _ -> failwith "Nom de variable pour param pas extractible" in
+
+        let params_to_string l = 
+                                L.map e_to_string l in
+        FunDef(e_to_string param_nom_fonc, params_to_string (find_params member), L.map to_expre (find_corpse member)) (*TODO : Bidouille*)
+         
+(* Pour le moment on va juste gérer des formes fun a -> fun b -> func c -> <code...>*)
+
+
+let objexpre_of_camlexpre e = This;;
         (** Stratégie
          * 0. RÉORGANISATION : le code de ocaml2lang va être renommé en parse_caml.ml, compilé dans un .cmo
          *      On aura
          *
          *
          * 1. Faire un dictionnaire des types présents, de sorte que les Tlink renvoient vers quelques chose
+         *      OK
+         *
          * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme.
          *      Exemple :
                  *      type expre = 
@@ -81,9 +227,16 @@ let objexpre_of_camlexpre = This;;
                                  *     Class Moins inherit expre
                                  *     value1 of expre
                                  *     value2 of expre
+                  * ---==============OK-==============---   
                                 
          * 3. Dès qu'un record est créé, on créé les objets correspondants
-         * 4. Prégénérer des fonctions à plusieurs variables, quand on a de l'ordre supérieur. Si on détecte un appel non total dans le code, il faudra génrer un autre version de la fonction.
+         *
+         *    ---==============OK-==============---
+         *
+         * 4. Prégénérer des fonctions à plusieurs variables, quand on a de l'ordre supérieur. Si on détecte un appel non total dans le code, il faudra générer un autre version de la fonction.
+         *    a. Compter le nombre de paramètres : nombre d'imbrication de TArrow
+         *
+         *
          *
          * Pour le reste : 
          * - Sur chaque Let, on va regarder le typage : si on un TArrow, alors c'est que c'est une def de fonction

@@ -1,6 +1,6 @@
 
-#require "batteries";;
-#require "compiler-libs.common";;
+(*#require "batteries";;
+#require "compiler-libs.common";;*)
 module L = BatList;;
 module O = BatOption;;
 
@@ -10,7 +10,7 @@ open Typedtree
 open Parsetree
 
 
-let i,ml = Cmt_format.read "tst1.cmt";;
+let i,ml = Cmt_format.read "tst3.cmt";;
 
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
@@ -33,7 +33,7 @@ let ml2 = get_ast ml;;
  * |_? Texp_function
  *     |__ Tpat_desc a
  * *)
-#print_length 100000;;
+(*#print_length 100000;;*)
 
 
 (* let non valide pour tst4.ml
@@ -1039,7 +1039,7 @@ type ty =
   *)
 
 ;;
-
+(*
 #trace untype_structure_item;;
 #trace untype_value_description;;
 #trace untype_type_declaration;;
@@ -1070,7 +1070,7 @@ type ty =
 #trace expre_list_to_sequence;;
 #trace type_from_ast_type;;
 #trace get_variables_names;; 
-
+*)
 (*
 
 (* On ne gère que les opérateurs sur entiers, chaines et listes. TODO Float, Bool*)  

@@ -35,7 +35,7 @@ type  objexpre =
   | Less                of  objexpre * objexpre 		       (* Integer comparison [e1 < e2] *)
   | LessEqual           of  objexpre * objexpre
 
-  | VarDef              of  name * objexpre (*langage simple, objexpression simple*)
+  | VarDef              of  name * objexpre option (*langage simple, objexpression simple*)
   | IfThenElse          of  objexpre  * objexpre *  objexpre option        (* Conditional [if e1 then e2 else e3] *)
   | ForC                of  objexpre  * objexpre * objexpre * objexpre (*for( <objexpre>; <objexpre>; <objexpre>) <objexpre>*)
   | ForTo               of  int    * int   * objexpre
@@ -68,6 +68,9 @@ Let (NonRec, [Var "a"], TLink "expr", [ConstructionType ("Moins",
 let ast_record = [TypeDeclaration [("enregistrement", TRecord [("a", TInt); ("b", TString); ("c", TChar)])];
    Let (NonRec, [Var "e"], TLink "enregistrement", [RecordElemAffect [("a", Inconnu, Int 8); ("b", Inconnu, String "test contenu chaine dans record"); ("c", Inconnu, Char 'R')]])]
 
+
+
+(* Construit un dictionnaire de types. Nom -> Def*)
 let dico_of_camlexpre e = 
         let get_type_decl ex = (match ex with
                                 | TypeDeclaration l -> Some l
@@ -89,7 +92,13 @@ let base_type_to_object_base_type t : objexpre =
         | TString -> String ""
         | _ -> failwith "à finir"
 
-(*On gère pas les tuples, et pour chaque tuple, soit on les flatten, soit on créé un objet pour lui.
+
+
+(* Cette fonction prend une définition de type et en génère un objet si nécessaire.
+ * TODO résultat :      si c'est un type simple, pas besoin de faire grand chose
+ *                      Si c'est un type somme, il faut construire les valeur, et survient le problème du nommage des variables.
+ *
+ * On gère pas les tuples, et pour chaque tuple, soit on les flatten, soit on créé un objet pour lui.
  * Pas question d'utiliser des tuples as_is, car on ne sait pas si le langage cible les gèrent
  * Autre gros problème : *)
 let base_type_to_classe_props tt =
@@ -104,6 +113,7 @@ let base_type_to_classe_props tt =
                 | _ -> failwith "à finir"
         in func 0 tt
 
+(* TODO : quelle est la différence avec la fonction du dessus ??*)
 let base_type_liste_record_to_class tlist =
         let rec func n t =
                  match t with
@@ -117,7 +127,8 @@ let base_type_liste_record_to_class tlist =
 
 
 
-
+(* Construit un objet en fonction du type donné en argument
+ * TODO : discriminer les cas où on a des types simple, des records, des types sommes ou un mix de tout cela*)
 
 let object_of_type t =
         let nom_type,typ_decl = t in
@@ -132,20 +143,20 @@ let object_of_type t =
         | TRecord   l -> [ ClassDef(nom_type, None, base_type_liste_record_to_class l)]
         | _     -> failwith "pas géré"
 
-
+(*Construit la liste des fonction du code*)
 let make_function_list e =
         let process_one ee = match ee with
                 | Let ( isec, params, TArrow(input_type,output_type), member) as letf -> Some letf
                 | _                                                                   -> None
         in L.map O.get (L.filter O.is_some (L.map process_one e))
 
-
+(* Compte le nombre s'imbrication de fonctions dans le type d'une fonction*)
 let rec count_parameter_cardinal tt =
         match tt with
         | TArrow(a,b) -> 1 + count_parameter_cardinal(a) + count_parameter_cardinal(b)
         | _           -> 0
 
-
+(* Convertit une expre dans l'AST objet*)
 let rec to_expre (e : Parse_ocaml.expre) = match e with
         | Parse_ocaml.StringConcat (a,b)    -> StringConcat(to_expre a, to_expre b)
         | Int a                 -> Int a
@@ -161,11 +172,12 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
         | Equal (e1,e2)         -> Equal (to_expre e1, to_expre e2)          
         | Less (e1,e2)          -> Less (to_expre e1,to_expre e2)
         | Let(isrec,param::[] (*une seule fonction*),TArrow(input_type,output_type), member) as letf -> uncurrify_function param letf
+        | IfThenElse(cond,iff,els) -> SequenceList [VarDef "result_if";IfThenElse(cond,VarAffect("result_if",to_expre iff),VarAffect("result_if",to_expre els))] (*Point 6*)
         | Var a                 -> Var a
         | _     -> failwith "pas encore géré"
 
 
-
+(* Décurifie une fonction *)
 and uncurrify_function param_nom_fonc ef =
         (*1er cas : simple : aucun calcul intermédiaire dans les premières fonctions
          *      On va jusqu'au bout, en récursif, en empilant, dans une liste, les paramètres
@@ -230,18 +242,20 @@ let objexpre_of_camlexpre e = This;;
                   * ---==============OK-==============---   
                                 
          * 3. Dès qu'un record est créé, on créé les objets correspondants
+         *      TODO
          *
          *    ---==============OK-==============---
          *
          * 4. Prégénérer des fonctions à plusieurs variables, quand on a de l'ordre supérieur. Si on détecte un appel non total dans le code, il faudra générer un autre version de la fonction.
          *    a. Compter le nombre de paramètres : nombre d'imbrication de TArrow
+         *     OK PARTIEL
          *
          *
          *
          * Pour le reste : 
-         * - Sur chaque Let, on va regarder le typage : si on un TArrow, alors c'est que c'est une def de fonction
+         * 5. - Sur chaque Let, on va regarder le typage : si on un TArrow, alors c'est que c'est une def de fonction
          *   Sinon c'est une définition de variable
-         * - Tranformer le if/then/else qui est une expression en instruction, genre :
+         * 6. - Tranformer le if/then/else qui est une expression en instruction, genre :
                  * var result;
                  * if <cond> then result = <expre d'origine> else result = <expre d'origine>
                  * la_variable_du_let = result

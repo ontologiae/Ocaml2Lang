@@ -141,7 +141,7 @@ let object_of_type t =
         match typ_decl with
         | TSum_type l -> ( ClassDef(nom_type, None, []))::(mk_obj l nom_type)
         | TRecord   l -> [ ClassDef(nom_type, None, base_type_liste_record_to_class l)]
-        | _     -> failwith "pas géré"
+        | _     -> failwith "object_of_type : pas géré "
 
 (*Construit la liste des fonction du code*)
 let make_function_list e =
@@ -172,9 +172,14 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
         | Equal (e1,e2)         -> Equal (to_expre e1, to_expre e2)          
         | Less (e1,e2)          -> Less (to_expre e1,to_expre e2)
         | Let(isrec,param::[] (*une seule fonction*),TArrow(input_type,output_type), member) as letf -> uncurrify_function param letf
-        | IfThenElse(cond,iff,els) -> SequenceList [VarDef "result_if";IfThenElse(cond,VarAffect("result_if",to_expre iff),VarAffect("result_if",to_expre els))] (*Point 6*)
+        | IfThenElse(cond,iff,els) -> SequenceList [VarDef ("result_if",None);
+                                                    IfThenElse(to_expre cond,
+                                                               VarAffect("result_if", to_expre iff),
+                                                               if O.is_some els then Some (VarAffect("result_if", O.get els |> to_expre)) else None
+                                                              )
+                                                   ] (*Point 6*)
         | Var a                 -> Var a
-        | _     -> failwith "pas encore géré"
+        (*| _     -> failwith "to_expre : pas encore géré"*)
 
 
 (* Décurifie une fonction *)

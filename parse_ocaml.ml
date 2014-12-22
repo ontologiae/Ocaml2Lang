@@ -40,13 +40,17 @@ let ml2 = get_ast ml;;
 let letquifonctionnepas = let _,b = ( tstrval   (strdesc (subitem ml2 1))   ) in let _,al = L.split b in let c = L.hd al in let h,j,k = texpfun c.exp_desc in let _,l = L.split j in let m = L.hd l in let _,n,_ = texpfun m.exp_desc in let _,o = L.split n in let p = L.hd o in let _,q,_ = texpfun p.exp_desc in let _,r = L.split q in L.hd r;;
  * 
  * *)
-
+(*
 let expenv = try
         let ast1 = match  (L.hd ml2.str_items).str_desc with |  Tstr_value (rec_flag, list)  -> list in
-        let astType1,astExpre1 = L.split ast1 in
-        let expenv = (L.hd astExpre1).exp_env in Some expenv
+(*        let astType1,astExpre1 = L.split ast1 in*)
+        let expenv = (L.hd ast1).vb_pat in Some expenv
 with e -> None
+*)
 
+let string_is_prefix sub str =
+  let sublen = String.length sub in
+  String.length str >= sublen && String.sub str 0 sublen = sub
 
 let substruct m = (List.hd m.str_items).str_desc
 
@@ -60,13 +64,13 @@ let texpfun e  = match e with Texp_function(a,b,c) -> a,b,c | _ -> failwith "pas
 
 let tstrval e  = match e with Tstr_value (a,b) -> a,b | _ -> failwith "pas le bon ! :-)";;
 
-let tsrteval e = match e with Tstr_eval e -> e | _ -> failwith "pas le bon ! :-)";;
+let tsrteval e = match e with Tstr_eval (e,_) -> e | _ -> failwith "pas le bon ! :-)";;
 
 let texpapp e  = match e with | Texp_apply (a,b) -> a,b | _ -> failwith "pas le bon ! :-)";;
 
 let texplet e  = match e with | Texp_let(a, lst,b) -> a,lst,b  | _ -> failwith "pas le bon ! :-)";;
 
-let texcons e  = match e with | Texp_construct(a, lst,b,c) -> a,lst,b,c  | _ -> failwith "pas le bon ! :-)";;
+let texcons e  = match e with | Texp_construct( lst,b,c) ->lst,b,c  | _ -> failwith "pas le bon ! :-)";;
 
 let tstrtype e  = match e with | Tstr_type l -> l | _ -> failwith "pas le bon ! :-)";;
 
@@ -85,7 +89,6 @@ let ttypevariant e = match e with | Ttype_variant l -> l | _ -> failwith "pas le
 
 (* Variable names *)
 type name = string
-
 
 
 
@@ -283,7 +286,8 @@ and get_variables_names pats =
 (*TODO renvoyer aussi le type !!*)
 
 
-and get_pats_expression  list    = L.split (L.map (fun (pat, exp) -> pat, exp) list)
+and get_pats_expression  list    = L.split (L.map (fun elem -> elem.vb_pat, elem.vb_expr) list)
+and get_pats_expression_from_cases list = L.split (L.map (fun elem -> elem.c_lhs, elem.c_rhs) list)
 
 and expre_list_to_sequence lst =
         match lst with
@@ -295,7 +299,7 @@ and untype_structure_item item =
   let desc =
     match item.str_desc with
     (* Probablement une évaluation directe*)
-      Tstr_eval exp -> untype_expression exp
+    Tstr_eval (exp,_) -> untype_expression exp
 
        (* Correspond à un let GLOBAL au programme
         *
@@ -316,47 +320,37 @@ and untype_structure_item item =
                                           Let (rrec, L.map untype_pattern pats, typage, L.map untype_expression expressions)
                                           
 
-    | Tstr_primitive (id, name, v) -> let on_garde = (name, untype_value_description v)  in pas_gere()
+    | Tstr_primitive ( v) -> let on_garde = (v.val_name, untype_value_description v)  in pas_gere()
 
 
         (* Définition d'un type*)
-    | Tstr_type list -> let def_types = (L.map (fun (id, name, decl) -> name.txt, untype_type_declaration decl) list)  in TypeDeclaration def_types
+    | Tstr_type list -> let def_types = L.map untype_type_declaration list  in 
+                            TypeDeclaration def_types
         (**Définition d'une exception*)
-    | Tstr_exception (id, name, decl) -> let on_garde = (name, untype_exception_declaration decl) in pas_gere()
-    | Tstr_exn_rebind (id, name, p, lid) -> let on_garde =  (id, name, p, lid) in pas_gere()
-    | Tstr_module (id, name, mexpr) ->  DefModule(name.txt, untype_module_expr mexpr)
-    | Tstr_recmodule list -> let on_garde = (List.map (fun (id, name, mtype, mexpr) ->
-              name, untype_module_type mtype,
-              untype_module_expr mexpr) list) in pas_gere()
-    | Tstr_modtype (id, name, mtype) -> let on_garde = (name, untype_module_type mtype) in pas_gere()
-    | Tstr_open (ov, path, lid) ->  let on_garde = (ov, path, lid) in pas_gere()
-    | Tstr_class list -> let on_garde = (List.map (fun (ci, _, _) ->
-              { pci_virt = ci.ci_virt;
-                pci_params = ci.ci_params;
-                pci_name = ci.ci_id_name;
-                pci_expr = untype_class_expr ci.ci_expr;
-                pci_variance = ci.ci_variance;
-                pci_loc = ci.ci_loc;
-              }
-          ) list)
- in pas_gere()
-    | Tstr_class_type list -> let on_garde = 
-              (List.map (fun (id, name, ct) ->
-              {
-                pci_virt = ct.ci_virt;
-                pci_params = ct.ci_params;
-                pci_name = ct.ci_id_name;
-                pci_expr = untype_class_type ct.ci_expr;
-                pci_variance = ct.ci_variance;
-                pci_loc = ct.ci_loc;
-              }
-          ) list) in pas_gere()
-    | Tstr_include (mexpr, _) -> let on_garde =(untype_module_expr mexpr) in pas_gere()
+    | Tstr_exception (elem) -> let on_garde = untype_extension_constructor elem in pas_gere()
+    (*| Tstr_exn_rebind (id, name, p, lid) -> let on_garde =  (id, name, p, lid)
+     * in pas_gere()*)
+    | Tstr_module (mexpr) ->  DefModule(mexpr.mb_name.txt, untype_module_expr mexpr.mb_expr)
+    | Tstr_recmodule list -> let on_garde = (List.map (fun elem ->
+              elem.mb_name,
+              untype_module_expr elem.mb_expr) list) in pas_gere()
+    | Tstr_modtype (elem) -> (*let on_garde = (elem.mtd_name, untype_module_type elem.mtd_type) in*) pas_gere()
+    | Tstr_open (op) ->  let on_garde = op in pas_gere()
+    | Tstr_class list -> let on_garde = List.map (fun (ci, _, _) ->  untype_class_expr ci.ci_expr; ) list in pas_gere()
+    | Tstr_class_type list -> let on_garde =  List.map (fun (_,_,ct) -> untype_class_type ct.ci_expr ) list in pas_gere()
+    | Tstr_include (mexpr) -> (* let on_garde =(untype_module_expr mexpr.incl_mod.mod_desc) in pas_gere()*) failwith "todo : revoir l'ast descender pour savoir
+    comment gérer ce truc"
   in
   let on_garde = desc, item.str_loc in
   let _ = p "structure_item" in
   desc
 
+and untype_extension_constructor ext =
+     let on_garde =  match ext.ext_kind with
+      | Text_decl (args, ret) -> let rien = List.map untype_core_type args, option untype_core_type ret in pas_gere()
+      | Text_rebind (_p, lid) -> pas_gere() in
+        pas_gere()
+     
 and untype_value_description v =
   
         let on_garde = v.val_prim, (untype_core_type v.val_desc), v.val_loc in
@@ -372,60 +366,38 @@ and to_core_type name =
         | s        -> TLink s
 
 
-and untype_type_declaration decl   : ty =
+and untype_type_declaration decl  =
+        let nom = decl.typ_name.txt in
       (*  let on_garde = decl.typ_params, ( List.map (fun (ct1, ct2, loc) -> (untype_core_type ct1, untype_core_type ct2, loc)) decl.typ_cstrs),*)
     match decl.typ_kind with
-    | Ttype_abstract ->  Inconnu
-    | Ttype_variant list -> (*let get_constr_item c = (match c.ctyp_desc with
-                                                        | Ttyp_constr (_path, types , loc) ->   ( match types.txt with
-                                                                                                                |  Longident.Lident nomtype -> to_core_type nomtype
-                                                                                                                |  _    -> failwith "on a pas de Longident pour le nom type"
-                                                                                                     ) 
-                                                        | _   -> failwith "on a un truc bizare dans une construction de type somme"
-                                                      ) in*)
-                      let fun_param_variant (s, name, cts, loc) =
-                                                     let parametre_variant = L.map untype_core_type cts in
+    | Ttype_abstract ->  nom, Inconnu
+    | Ttype_variant list ->
+                    let fun_param_variant record =
+                                                     let parametre_variant = L.map untype_core_type record.cd_args in
                                                     (match L.length parametre_variant with
-                                                          | 0 -> TType_variant(name.txt,Inconnu)
-                                                          | 1 -> TType_variant(name.txt,L.hd parametre_variant)
-                                                          | n -> TType_variant(name.txt,TTuple parametre_variant)
+                                                          | 0 -> TType_variant(record.cd_name.txt,Inconnu)
+                                                          | 1 -> TType_variant(record.cd_name.txt,L.hd parametre_variant)
+                                                          | n -> TType_variant(record.cd_name.txt,TTuple parametre_variant)
                                                     ) 
                       in                                                                                       
                       let type_somme = L.map fun_param_variant list in
                       ( match L.length type_somme with
-                        | 0 -> Inconnu
-                        | n -> TSum_type type_somme
+                        | 0 -> nom, Inconnu
+                        | n -> nom, TSum_type type_somme
                       ) 
 
                       
                       
       | Ttype_record list ->
-                      let record_list (* (name * ty) list*) =
-                              L.map (fun (s, name, mut, ct, loc) -> name.txt, untype_core_type ct) list    in TRecord(record_list)
-    (*,
-    decl.typ_private,
-     (match decl.typ_manifest with
-        None -> None
-      | Some ct  -> let on_garde = (untype_core_type ct) in Some on_garde),
+                      let record_list =
+                              L.map (fun reco -> reco.ld_name.txt, untype_core_type reco.ld_type) list    in  
+                      nom, TRecord(record_list)
 
-    decl.typ_variance,
-    decl.typ_loc*)
-        
-
-and untype_exception_declaration decl =
-  List.map untype_core_type decl.exn_params
 
 
 
 (** les Tpat servent à représenter les pattern à gauche de la flèche dans le pattern matching*)
 and untype_pattern pat =
-(*  let desc =
-  match pat with
-  { pat_extra=[Tpat_unpack, _]; pat_desc = Tpat_var (_,name) } ->  pas_gere()
-    | { pat_extra=[Tpat_type (path, lid), _] } ->  pas_gere()
-    | { pat_extra= (Tpat_constraint ct, _) :: rem } ->
-                    let on_garde =  (untype_pattern { pat with pat_extra=rem }, untype_core_type ct) in pas_gere()
-    | _ ->*)
     match pat.pat_desc with
       Tpat_any -> Pas_Encore_gere
     | Tpat_var (id, name) ->
@@ -439,7 +411,7 @@ and untype_pattern pat =
                     let on_garde = (untype_pattern pat, name) in pas_gere()
     | Tpat_constant cst ->  pas_gere()
     | Tpat_tuple list ->  let patterns = L.map untype_pattern list in expre_list_to_sequence patterns
-    | Tpat_construct (lid, constructor_desc, args, explicit_arity) ->
+    | Tpat_construct (lid, constructor_desc, args) ->
                     (**
                      * Vérifier si lid contient pas un opérateur avec from_pervasives_operator
                      * Dans ce cas, on 2 arguments
@@ -501,9 +473,7 @@ and option f x = match x with None -> None | Some e  -> let on_garde = (f e) in 
 and untype_extra (extra, loc) sexp =
   let desc =
     match extra with
-    | Texp_constraint (cty1, cty2) -> let on_garde =   (sexp,
-                         option untype_core_type cty1,
-                         option untype_core_type cty2) in  pas_gere()
+    | Texp_constraint (cty1) -> let on_garde =   (sexp, untype_core_type cty1) in  pas_gere()
     | Texp_open (ovf, _path, lid, _) -> let on_garde =  (ovf, lid, sexp) in  pas_gere()
     | Texp_poly cto -> let on_garde =  (sexp, option untype_core_type cto) in  pas_gere()
     | Texp_newtype s -> let on_garde =  (s, sexp) in  pas_gere()
@@ -573,7 +543,7 @@ and untype_expression exp  =
 
                                         |  _       -> Var nom_var)*)
     | Texp_constant cst -> (match cst with
-                                | Const_string s -> String s
+                                | Const_string (s,_) -> String s
                                 | Const_char   c -> Char   c
                                 | Const_int    i -> Int    i
                                 | Const_float  f -> Float  (float_of_string f)
@@ -597,7 +567,7 @@ and untype_expression exp  =
      * 3eme param : indicateur hyper utile qui dit si la fonction est appliqué totalement ou non :-) 
      *
      * Logiquement la taille du 2nd argument est de 1, car l'AST décurrifie les fonctions à plusieurs arguments*)
-    | Texp_function (label, cases, _)  -> let pats, expressions  = get_pats_expression cases in
+    | Texp_function (label, cases, _)  -> let pats, expressions  = get_pats_expression_from_cases cases in
                                           (* Pour récup le type, on récupère les infos de typage du premier élem ???
                                            * Après test, on récup que la partie gauche du Tarrow. Faut remonter plus haut pour tout récup*)
                                           (*let typage = let pat = L.hd pats in type_from_ast_type pat.pat_type in*)
@@ -651,17 +621,19 @@ and untype_expression exp  =
                 None -> list
               | Some exp -> (label, untype_expression exp) :: list
           ) list [])  in pas_gere()*)
-    | Texp_match (exp, list, _) ->
-                    let patterns = L.map (fun (p,e) -> untype_pattern p, Inconnu, untype_expression e) list in
+    | Texp_match (exp, case1, case2, _) ->
+                    let patterns  = L.map (fun  e -> untype_pattern e.c_lhs, Inconnu, untype_expression e.c_rhs) case1 in
+                    let patterns2 = L.map (fun  e -> untype_pattern e.c_lhs, Inconnu, untype_expression e.c_rhs) case2 in
                     PatternMatch( untype_expression exp, patterns)
     | Texp_try (exp, list) ->
         TryWith (untype_expression exp, "TODO", 
-          expre_list_to_sequence (L.map (fun (_, exp) -> untype_expression exp) list))
+           L.map (fun elem -> untype_expression elem.c_rhs) list |> expre_list_to_sequence)
+
     | Texp_tuple list  -> let on_garde = (List.map untype_expression list) in pas_gere()
 
     (* Texp_construct of Longident.t loc * constructor_description * expression list * bool 
         *)
-    | Texp_construct ( lid, constructor_desc, args, explicit_arity) ->
+    | Texp_construct ( lid, constructor_desc, args) ->
                     let get_valeur_seule cons = 
                              match cons with
                                         | "[]" -> ListeVide
@@ -729,7 +701,6 @@ and untype_expression exp  =
         let on_garde = (name,
           untype_expression exp1, untype_expression exp2,
           dir, untype_expression exp3)  in pas_gere()
-    | Texp_when (exp1, exp2)  -> let on_garde = (untype_expression exp1, untype_expression exp2) in pas_gere()
     | Texp_send (exp, meth, _) ->
         let on_garde = (untype_expression exp, match meth with
             Tmeth_name name -> name
@@ -743,7 +714,6 @@ and untype_expression exp  =
           ) list)  in pas_gere()
     | Texp_letmodule (id, name, mexpr, exp)  -> let on_garde = (name, untype_module_expr mexpr,   untype_expression exp) in pas_gere()
     | Texp_assert exp  -> let on_garde = (untype_expression exp) in pas_gere()
-    | Texp_assertfalse -> pas_gere()
     | Texp_lazy exp  -> let on_garde = (untype_expression exp) in pas_gere()
     | Texp_object (cl, _)  -> let on_garde = (untype_class_structure cl) in pas_gere()
     | Texp_pack (mexpr)  -> let on_garde = (untype_module_expr mexpr) in pas_gere()
@@ -759,49 +729,50 @@ and untype_package_type pack =
 and untype_signature sg =
   List.map untype_signature_item sg.sig_items
 
-and untype_modtype_declaration mdecl =
-  match mdecl with
-    Tmodtype_abstract -> pas_gere()
-  | Tmodtype_manifest mtype -> let on_garde =  (untype_module_type mtype) in pas_gere()
-
-
-and untype_signature_item item =
+and
+ untype_signature_item item =
   let desc =
     match item.sig_desc with
-      Tsig_value (id, name, v) -> let on_garde =  (name, untype_value_description v) in pas_gere()
-    | Tsig_type list ->
-      (*  let on_garde =  (List.map (fun (id, name, decl) ->
-              name, untype_type_declaration decl
-          ) list) in*) pas_gere()
-    | Tsig_exception (id, name, decl) -> let on_garde =  (name, untype_exception_declaration decl) in pas_gere()
-    | Tsig_module (id, name, mtype) -> let on_garde =  (name, untype_module_type mtype) in pas_gere()
-    | Tsig_recmodule list -> let on_garde = (List.map (fun (id, name, mtype) ->  name, untype_module_type mtype) list) in pas_gere()
-    | Tsig_modtype (id, name, mdecl) -> let on_garde =  (name, untype_modtype_declaration mdecl) in pas_gere()
-    | Tsig_open (ovf, path, lid) -> pas_gere()
-    | Tsig_include (mty, lid) -> let on_garde =  (untype_module_type mty) in pas_gere()
-    | Tsig_class list -> let on_garde =  (List.map untype_class_description list) in pas_gere()
-    | Tsig_class_type list -> let on_garde =  (List.map untype_class_type_declaration list) in pas_gere()
+    | Tsig_value v -> untype_value_description v
+    | Tsig_type list -> (*List.map untype_type_declaration list*) pas_gere()
+    | Tsig_typext tyext -> untype_type_extension tyext
+    | Tsig_exception ext -> untype_extension_constructor ext
+    | Tsig_module md -> (*untype_module_type md.md_type*) pas_gere()
+    | Tsig_recmodule list -> (*let rien = List.map (fun md -> untype_module_type md.md_type) list in*) pas_gere()
+    | Tsig_modtype mtd -> (*let rien = option untype_module_type mtd.mtd_type in*) pas_gere()
+    | Tsig_open od -> pas_gere()
+    | Tsig_include incl -> (*let rien = untype_module_type incl.incl_mod in*) pas_gere()
+    | Tsig_class list ->   let rien = List.map untype_class_description list in pas_gere()
+    | Tsig_class_type list -> let rien =  List.map untype_class_type_declaration list in pas_gere()
+    | Tsig_attribute x -> pas_gere()
   in
-  let on_garde = desc, item.sig_loc in (*p "signature_item"*) Pas_Encore_gere
+  Pas_Encore_gere
+
+and untype_type_extension tyext =
+  let rien = List.map untype_type_parameter tyext.tyext_params,  List.map untype_extension_constructor tyext.tyext_constructors in
+  pas_gere()
+
+
+and untype_type_parameter (ct, v) = (untype_core_type ct, v)
 
 
 and untype_class_description cd =
-  let on_garde = cd.ci_virt, cd.ci_params, cd.ci_id_name, untype_class_type cd.ci_expr, cd.ci_variance,  cd.ci_loc in (*p "class_description"*) Pas_Encore_gere
+  let on_garde = untype_class_type cd.ci_expr in (*p "class_description"*) Pas_Encore_gere
 
 and untype_class_type_declaration cd =
-  let on_garde =  cd.ci_virt, cd.ci_params, cd.ci_id_name, untype_class_type cd.ci_expr, cd.ci_variance, cd.ci_loc in (*p "class_type_declaration"*) Pas_Encore_gere
+  let on_garde =  untype_class_type cd.ci_expr in (*p "class_type_declaration"*) Pas_Encore_gere
 
 
-and untype_module_type mty =
+and untype_module_type ( mty : Typedtree.module_type )  =
   let desc = match mty.mty_desc with
       Tmty_ident (path, lid) -> pas_gere()
     | Tmty_signature sg -> let on_garde =  (untype_signature sg) in pas_gere()
-    | Tmty_functor (id, name, mtype1, mtype2) -> let on_garde = (name, untype_module_type mtype1, untype_module_type mtype2) in pas_gere()
+    | Tmty_functor (id, name, mtype1, mtype2) ->(* let on_garde =  untype_module_type mtype1, untype_module_type mtype2 in*) pas_gere()
     | Tmty_with (mtype, list) ->
-                    let on_garde = (untype_module_type mtype,
-          List.map (fun (path, lid, withc) ->
-              lid, untype_with_constraint withc
-          ) list) in pas_gere()
+                    let on_garde = (untype_module_type mtype, List.map (fun (path, lid, withc) ->
+                                                                                                lid, untype_with_constraint withc
+                                                                       )
+                                                             list) in pas_gere()
     | Tmty_typeof mexpr -> let on_garde = (untype_module_expr mexpr) in pas_gere()
   in
   let on_garde =  desc, mty.mty_loc in (*p "module_type"*) Pas_Encore_gere
@@ -823,9 +794,9 @@ and untype_module_expr mexpr =
       let desc = match mexpr.mod_desc with
         | Tmod_ident (_p, lid)  -> (match lid.txt with | Longident.Lident txt -> Var txt | _ -> failwith "Autre chose qu'un longident")(*Douteux...*)
         | Tmod_structure st  -> let on_garde = (to_object_language st) in pas_gere()
-        | Tmod_functor (_id, name, mtype, mexpr)  -> let on_garde = (name, untype_module_type mtype, untype_module_expr mexpr) in pas_gere()
+        | Tmod_functor (_id, name, mtype, mexpr)  -> (*let on_garde = untype_module_type mtype, untype_module_expr mexpr in*) pas_gere()
         | Tmod_apply (mexp1, mexp2, _)  -> let on_garde = (untype_module_expr mexp1, untype_module_expr mexp2) in pas_gere()
-        | Tmod_constraint (mexpr, _, Tmodtype_explicit mtype, _)  -> let on_garde = (untype_module_expr mexpr, untype_module_type mtype) in pas_gere()
+        | Tmod_constraint (mexpr, _, Tmodtype_explicit mtype, _)  -> (*let on_garde = (untype_module_expr mexpr, untype_module_type mtype) in*) pas_gere()
         | Tmod_constraint (_mexpr, _, Tmodtype_implicit, _) -> assert false
         | Tmod_unpack (exp, _pack)  -> let on_garde = (untype_expression exp) in pas_gere()
         (* TODO , untype_package_type pack) *)
@@ -852,8 +823,8 @@ and untype_class_expr cexpr =
 
     | Tcl_let (rec_flat, bindings, _ivars, cl) ->
                     let on_garde =  (rec_flat,
-          List.map (fun (pat, exp) ->
-              (untype_pattern pat, untype_expression exp)) bindings,
+          List.map (fun elem ->
+              (untype_pattern elem.vb_pat, untype_expression elem.vb_expr)) bindings,
           untype_class_expr cl) in pas_gere()
 
     | Tcl_constraint (cl, Some clty, _vals, _meths, _concrs)  -> let on_garde = (untype_class_expr cl,  untype_class_type clty) in pas_gere()
@@ -868,23 +839,22 @@ and untype_class_type ct =
   let desc = match ct.cltyp_desc with
       Tcty_signature csg  -> let on_garde = (untype_class_signature csg) in pas_gere()
     | Tcty_constr (_path, lid, list)  -> let on_garde = (lid, List.map untype_core_type list) in pas_gere()
-    | Tcty_fun (label, ct, cl)  -> let on_garde = (label, untype_core_type ct, untype_class_type cl) in pas_gere()
+    | Tcty_arrow (label, ct, cl)  -> let on_garde = (label, untype_core_type ct, untype_class_type cl) in pas_gere()
   in
    let on_garde = desc, ct.cltyp_loc in (*p "class_type"*) Pas_Encore_gere
 
 and untype_class_signature cs =
-  let on_garde = untype_core_type cs.csig_self, List.map untype_class_type_field cs.csig_fields, cs.csig_loc in
+  let on_garde = untype_core_type cs.csig_self, List.map untype_class_type_field cs.csig_fields in
   (*p "class_signature"*) Pas_Encore_gere
 
 and untype_class_type_field ctf =
   let desc = match ctf.ctf_desc with
-      Tctf_inher ct  -> let on_garde = (untype_class_type ct) in pas_gere()
+    | Tctf_inherit ct  -> let on_garde = (untype_class_type ct) in pas_gere()
     | Tctf_val (s, mut, virt, ct)  -> let on_garde = (s, mut, virt, untype_core_type ct) in pas_gere()
-    | Tctf_meth  (s, priv, ct)  -> let on_garde = (s, priv,  untype_core_type ct) in pas_gere()
-    | Tctf_virt  (s, priv, ct) ->   let on_garde = (s, priv, untype_core_type ct) in pas_gere()
-    | Tctf_cstr  (ct1, ct2)  -> let on_garde = (untype_core_type ct1, untype_core_type ct2) in pas_gere()
+    | Tctf_method  (s, priv, vflag, ct)  -> let on_garde = (s, priv,  untype_core_type ct) in pas_gere()
+    | Tctf_constraint  (ct1, ct2)  -> let on_garde = (untype_core_type ct1, untype_core_type ct2) in pas_gere()
   in
-  let on_garde = desc, ctf.ctf_loc in (*p "class_type_field"*) Pas_Encore_gere
+   (*p "class_type_field"*) Pas_Encore_gere
   
 
 and untype_core_type ct =
@@ -910,8 +880,8 @@ and untype_core_type ct =
                                TGeneric([sstype],type_)
                         | n -> failwith "ya plusieurs sous éléments dans Ttyp_constr"
                     )
-    | Ttyp_object list  -> (*let on_garde =  (List.map untype_core_field_type list)   in *) failwith "On ne gère pas les objets pour le moment"
-    | Ttyp_class (path, lid, list, labels)  -> (*let on_garde =  (lid, List.map untype_core_type list, labels) in*) failwith "On ne gère pas les objets pour le moment"
+    | Ttyp_object (list,_)  -> (*let on_garde =  (List.map untype_core_field_type list)   in *) failwith "On ne gère pas les objets pour le moment"
+    | Ttyp_class (path, lid, list)  -> (*let on_garde =  (lid, List.map untype_core_type list, labels) in*) failwith "On ne gère pas les objets pour le moment"
     | Ttyp_alias (ct, s)  -> let on_garde = (untype_core_type ct, s) in Inconnu
 
 
@@ -922,35 +892,34 @@ and untype_core_type ct =
     | Ttyp_package pack  -> let on_garde = (untype_package_type pack) in Inconnu
   
 
-and untype_core_field_type cft =
-        let on_garde = (match cft.field_desc with 
-      | Tcfield_var -> pas_gere()
-      | Tcfield (s, ct) -> let on_garde = (s, untype_core_type ct) in pas_gere()),
-    cft.field_loc in (*p "core_field_type"*) Pas_Encore_gere
-
 
 and untype_class_structure cs =
-        let on_garde = untype_pattern cs.cstr_pat, List.map untype_class_field cs.cstr_fields in (*p "class_structure"*) Pas_Encore_gere
+        let rec remove_self = function
+    | { pat_desc = Tpat_alias (p, id, _s) } when string_is_prefix "selfpat-" id.Ident.name ->
+        remove_self p
+    | p -> p
+        in
+        let on_garde = remove_self cs.cstr_self |> untype_pattern , List.map untype_class_field cs.cstr_fields in (*p "class_structure"*) Pas_Encore_gere
 
 and untype_row_field rf =
   match rf with
-    Ttag (label, bool, list) -> let on_garde = (label, bool, List.map untype_core_type list) in  pas_gere()
+    Ttag (label,attrs, bool, list) -> let on_garde = (label, bool, List.map untype_core_type list) in  pas_gere()
   | Tinherit ct  -> let on_garde = (untype_core_type ct) in pas_gere()
 
 
 and untype_class_field cf =
   let desc = match cf.cf_desc with
-      Tcf_inher (ovf, cl, super, _vals, _meths) -> let on_garde = (ovf, untype_class_expr cl, super) in pas_gere()
-    | Tcf_constr (cty, cty') -> let on_garde = (untype_core_type cty, untype_core_type cty') in pas_gere()
-    | Tcf_val (lab, name, mut, _, Tcfk_virtual cty, override) -> let on_garde = (name, mut, untype_core_type cty) in pas_gere()
-    | Tcf_val (lab, name, mut, _, Tcfk_concrete exp, override) -> let on_garde = (name, mut, (if override then Override else Fresh), untype_expression exp) in pas_gere()
-    | Tcf_meth (lab, name, priv, Tcfk_virtual cty, override) -> let on_garde = (name, priv, untype_core_type cty) in pas_gere()
-    | Tcf_meth (lab, name, priv, Tcfk_concrete exp, override) -> let on_garde = (name, priv, (if override then Override else Fresh), untype_expression exp) in pas_gere()
+      Tcf_inherit (ovf, cl, super, _vals, _meths) -> let on_garde = (ovf, untype_class_expr cl, super) in pas_gere()
+    | Tcf_constraint (cty, cty') -> let on_garde = (untype_core_type cty, untype_core_type cty') in pas_gere()
+    | Tcf_val ( name, mut, _, Tcfk_virtual cty, override) -> let on_garde = (name, mut, untype_core_type cty) in pas_gere()
+    | Tcf_val ( name, mut, _, Tcfk_concrete (_,exp), override) -> let on_garde = (name, mut, (if override then Override else Fresh), untype_expression exp) in pas_gere()
+    | Tcf_method (name, priv, Tcfk_virtual cty) -> let on_garde = (name, priv, untype_core_type cty) in pas_gere()
+    | Tcf_method (name, priv, Tcfk_concrete (_,exp)) -> let on_garde =  untype_expression exp in pas_gere()
 (*    | Tcf_let (rec_flag, bindings, _) ->
         Pcf_let (rec_flag, List.map (fun (pat, exp) ->
               untype_pattern pat, untype_expression exp) bindings)
 *)
-  | Tcf_init exp -> let on_garde = (untype_expression exp) in pas_gere()
+  | Tcf_initializer exp -> let on_garde = (untype_expression exp) in pas_gere()
   in
   let on_garde = desc, cf.cf_loc in (*p "class_field"*) Pas_Encore_gere
 
@@ -994,6 +963,21 @@ and type_from_ast_type typ =
         | Tunivar  string_option                                 -> failwith "je connais pas ce type Tunivar"
         | Tpoly (type_expr, type_expr_list)                      -> let on_garde = L.map type_from_ast_type type_expr_list in Inconnu
         | Tpackage  (patht , longident_list , type_expr_list)    -> let on_garde = L.map type_from_ast_type type_expr_list in Inconnu
+
+
+
+
+
+
+
+
+
+
+let read_cmt file = let i,f = Cmt_format.read file in f |> get_ast |> to_object_language
+
+
+
+
 
 
 (*

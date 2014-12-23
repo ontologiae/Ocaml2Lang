@@ -10,6 +10,36 @@ type name = string
 type dictionnaire_types = { dico : (name, Parse_ocaml.ty) BatHashtbl.t }
 
 
+type typ =
+        | StringTyp
+        | FloatTyp
+        | CharTyp
+        | IntTyp
+        | BoolTyp
+        | ArrayTyp
+        | RecordTyp of typ list
+        | Enum of name list
+        | Portnawak
+        | TODO
+
+let to_typ = function
+        | "string" -> StringTyp
+        | "float" -> FloatTyp
+        | "char" -> CharTyp
+        | "int" -> IntTyp
+        | "bool" -> BoolTyp
+
+
+
+let rec from_ty = function
+        | TString  -> StringTyp
+        | TFloat   -> FloatTyp
+        | TInt     -> IntTyp
+        | TChar    -> CharTyp
+        | TBool    -> BoolTyp
+        | TTuple l -> RecordTyp (L.map from_ty l)
+        | _        -> Portnawak
+       
 
 type  objexpre =
   | This
@@ -41,14 +71,21 @@ type  objexpre =
   | ForTo               of  int    * int   * objexpre
   | ForEach             of  objexpre * objexpre (*ce sur quoi on itère. L'expression d'itération*)
   | FunDef              of  name * name list * objexpre list
+  | Return              of  objexpre
   | Funcall             of  name * objexpre list
   | TryWith             of  objexpre  * name  * objexpre
-  | VarAffect           of  name * objexpre
+  | VarAffect           of  name * name option (*si c'est une indirection, mais c'est foireux*) * objexpre
   | MethodCall          of  objexpre * name * objexpre list (*Receveur, méthode, arguments*)
 
   | ApplyExpre          of  objexpre * (objexpre list )(* Appelant, paramètres*)
-  | ClassDef            of  name * name option (* héritage *) *  objexpre list
+  | RecordDef           of  name * name option (*generic type*) *  objexpre list
+  | ClassDef            of  name * name option (* héritage *) * name option (*generic type*) *  objexpre list
+  | MethodDef           of  name * expre
+  | PropertyDef         of  name * typ
   | New                 of  name * objexpre list (*les arguments du constructeur*)
+  | EnumValue           of  name
+  | Null
+  | Nop
   (* Il faut def un apply à n argument*)
 
 
@@ -105,10 +142,10 @@ let base_type_to_classe_props tt =
         let rec func i t = 
                 let number = string_of_int i in
                 match t with
-                | TInt           -> [VarAffect("value"^number, Int 0)]
-                | TChar          -> [VarAffect("value"^number, Char '0')]
-                | TString        -> [VarAffect("value"^number, String "")]
-                | TLink  name    -> [VarAffect("value"^number, New(name,[]))]
+                | TInt           -> [VarAffect("value"^number, None, Int 0)]
+                | TChar          -> [VarAffect("value"^number, None, Char '0')]
+                | TString        -> [VarAffect("value"^number, None, String "")]
+                | TLink  name    -> [VarAffect("value"^number, None, New(name,[]))]
                 | TTuple l       -> L.flatten (L.mapi (fun i -> fun a -> (func (i+1) a)) l) 
                 | _ -> failwith "à finir"
         in func 0 tt
@@ -117,10 +154,10 @@ let base_type_to_classe_props tt =
 let base_type_liste_record_to_class tlist =
         let rec func n t =
                  match t with
-                | TInt           -> [VarAffect(n, Int 0)]
-                | TChar          -> [VarAffect(n, Char '0')]
-                | TString        -> [VarAffect(n, String "")]
-                | TLink  name    -> [VarAffect(n, New(name,[]))]
+                | TInt           -> [VarAffect(n, None, Int 0)]
+                | TChar          -> [VarAffect(n, None, Char '0')]
+                | TString        -> [VarAffect(n, None, String "")]
+                | TLink  name    -> [VarAffect(n, None, New(name,[]))]
                 | TTuple l       -> L.flatten (L.map (func n)  l)
                 | _ -> failwith "à finir" in
         L.flatten (L.map (fun (n,t) -> func n t) tlist)
@@ -134,14 +171,33 @@ let object_of_type t =
         let nom_type,typ_decl = t in
         let mk_obj l nt = 
                 let process_variant v = ( match v with
-                | TType_variant (n,tt) -> ClassDef(n, Some nt,  base_type_to_classe_props tt (*TODO*))
+                | TType_variant (n,tt) -> ClassDef(n, Some nt, None,  base_type_to_classe_props tt (*TODO*))
                 | _ -> failwith "autre cas doit pas arriver") in
             L.map process_variant l
         in
         match typ_decl with
-        | TSum_type l -> ( ClassDef(nom_type, None, []))::(mk_obj l nom_type)
-        | TRecord   l -> [ ClassDef(nom_type, None, base_type_liste_record_to_class l)]
+        | TSum_type l ->  RecordDef(nom_type, None, mk_obj l nom_type)
+        | TRecord   l ->  ClassDef(nom_type, None, None, base_type_liste_record_to_class l)
         | _     -> failwith "object_of_type : pas géré "
+
+
+
+let record_of_sum_type l =
+        let liste_tag = 
+                let ll = L.map (fun (TType_variant (n,_)) -> n) l in
+                PropertyDef("tag", Enum ll) in
+        let rec construit_nom = function
+                | TInt    -> "val_int"
+                | TChar   -> "val_char"
+                | TString -> "val_string"
+                | TFloat  -> "val_float"
+                | TLink n -> "val_"^n
+                | TTuple l -> String.concat "_" (L.map construit_nom l) in
+        let listeTypes = L.map (fun (TType_variant (_,t)) -> t) l |> L.unique in
+        let props = L.map (fun t -> PropertyDef(construit_nom t, from_ty t) ) listeTypes in
+        liste_tag::props
+
+
 
 (*Construit la liste des fonction du code*)
 let make_function_list e =
@@ -150,11 +206,19 @@ let make_function_list e =
                 | _                                                                   -> None
         in L.map O.get (L.filter O.is_some (L.map process_one e))
 
+
+
 (* Compte le nombre s'imbrication de fonctions dans le type d'une fonction*)
 let rec count_parameter_cardinal tt =
         match tt with
         | TArrow(a,b) -> 1 + count_parameter_cardinal(a) + count_parameter_cardinal(b)
         | _           -> 0
+
+
+let type_some_expre_to_record name cons =
+        (*On construit le record*)
+        SequenceList[VarAffect("",None,Nop)]
+
 
 (* Convertit une expre dans l'AST objet*)
 let rec to_expre (e : Parse_ocaml.expre) = match e with
@@ -162,7 +226,8 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
         | Int a                 -> Int a
         | Char c                -> Char c
         | String s              -> String s
-        | StringConcat (e1,e2)  -> StringConcat (to_expre e1,to_expre e2)   
+        | Bool b                -> Bool b
+        | Float f               -> Float f
         | ListConcat (e1,e2)    -> ListConcat (to_expre e1, to_expre e2)     
         | ListAddElem (e1,e2)   -> ListAddElem (to_expre e1,to_expre e2)    
         | Times (e1,e2)         -> Times (to_expre e1,to_expre e2)          
@@ -172,14 +237,44 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
         | Equal (e1,e2)         -> Equal (to_expre e1, to_expre e2)          
         | Less (e1,e2)          -> Less (to_expre e1,to_expre e2)
         | Let(isrec,param::[] (*une seule fonction*),TArrow(input_type,output_type), member) as letf -> uncurrify_function param letf
+        | Let(isrec,(Var n)::[], TLink e, [RecordElemAffect l] ) -> SequenceList (L.map (fun (na,t,e) -> VarAffect(na, Some n, to_expre e)) l)
+        | Let(isrec,(Var n)::[], TLink e, [ConstructionType (na,l)] ) ->  Nop
+        | Let(isrec,(Var n)::[],_,membre)          -> VarDef(n,Some(SequenceList (L.map to_expre membre)))
+        
+
         | IfThenElse(cond,iff,els) -> SequenceList [VarDef ("result_if",None);
                                                     IfThenElse(to_expre cond,
-                                                               VarAffect("result_if", to_expre iff),
-                                                               if O.is_some els then Some (VarAffect("result_if", O.get els |> to_expre)) else None
+                                                               VarAffect("result_if", None, to_expre iff),
+                                                               if O.is_some els then Some (VarAffect("result_if", None,  O.get els |> to_expre)) else None
                                                               )
                                                    ] (*Point 6*)
         | Var a                 -> Var a
+        | ListeVide             -> ListeVide
+        | NoneExp               -> Nop
+        | DefModule (_,_)       -> print_endline "to_expre : DefModule pas encore géré" ; Nop
+        | ModuleCall (n,e)      -> print_endline "to_expre : pas encore géré -> dictionnaire"; Funcall(n, [])
+        | Sequence(a,b)         -> SequenceList [to_expre a; to_expre b]
+        | Fun (e, ty, e2)       -> failwith "Fun pas encore géré, Hors Let"
+        | TryWith (e1,n,e2)     -> TryWith (to_expre e1, n, to_expre e2)
+        | RecordElemAffect l    -> failwith "Record elem affect non géré"
+        | PatternMatch(matched, pats) -> failwith "c'est là qu'on va s'amuser…"
+        | Apply(name, expre)    -> Funcall(name, [to_expre expre])
+
+
+        | ApplyExpre(ModuleCall(n,f), l) -> print_endline "todo dictionnaire"; Funcall(n^"."^f, L.map to_expre l)
+        | ApplyExpre(Var n, l) -> Funcall(n, L.map to_expre l )
+        | ApplyExpre(e1,explst) -> failwith "ApplyExpre : C'est quoi ??"
+
+
+        | TypeDeclaration ([nom, TRecord lst])   -> RecordDef(nom, None,  L.map (fun (n,t) -> PropertyDef(n, from_ty t)) lst)
+        | TypeDeclaration ([nom, TSum_type lst]) -> RecordDef(nom, None, record_of_sum_type lst)
+
+        | TypeDeclaration l     -> failwith "TODO TypeDeclaration"
+        | ConstructionType(n,el) -> print_endline "TODO ConstructionType" ; Nop
+        | Pas_Encore_gere       -> Nop
         (*| _     -> failwith "to_expre : pas encore géré"*)
+
+
 
 
 (* Décurifie une fonction *)
@@ -209,9 +304,14 @@ and uncurrify_function param_nom_fonc ef =
 
         let params_to_string l = 
                                 L.map e_to_string l in
-        FunDef(e_to_string param_nom_fonc, params_to_string (find_params member), L.map to_expre (find_corpse member)) (*TODO : Bidouille*)
+        let organize_return l      = 
+                                        let corps, fin = L.split_at (L.length l - 1) l in
+                                        (L.map to_expre corps)@[Return (L.hd fin |> to_expre)] in
+        FunDef(e_to_string param_nom_fonc, params_to_string (find_params member), organize_return (find_corpse member)) (*TODO : Bidouille*)
          
 (* Pour le moment on va juste gérer des formes fun a -> fun b -> func c -> <code...>*)
+
+
 
 
 let objexpre_of_camlexpre e = This;;

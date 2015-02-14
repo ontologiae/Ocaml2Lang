@@ -96,10 +96,46 @@ let astsimple = [Let (NonRec, [Var "funtst2"], TArrow (TString, TArrow (TString,
    [Fun ([Var "a"], Inconnu, [Fun ([Var "b"], Inconnu, [Fun ([Var "c"], Inconnu, [StringConcat (Var "a", StringConcat (Var "b", Var "c"))])])])])];;
 
 
-let ast_def_type = [TypeDeclaration [("expr", TSum_type [TType_variant ("Int", TInt); TType_variant ("Plus", TTuple [TLink "expr"; TLink "expr"]); TType_variant ("Moins", TTuple [TLink "expr"; TLink "expr"])])]; 
-Let (NonRec, [Var "a"], TLink "expr", [ConstructionType ("Moins",
+let ast_def_type = [TypeDeclaration 
+                                [("expr", 
+                                        TSum_type [TType_variant ("Int", TInt); 
+                                                   TType_variant ("Plus", TTuple [TLink "expr1"; TLink "expr1"]); 
+                                                   TType_variant ("Moins", TTuple [TLink "expr1"; TLink "expr"])
+                                                  ]
+                                 )
+                                ]
+                   ];;
+
+(*Let (NonRec, [Var "a"], TLink "expr", [ConstructionType ("Moins",
 [ConstructionType ("Plus", [ConstructionType ("Int", [Int 6]); ConstructionType
 ("Int", [Int 9])]); ConstructionType ("Int", [Int 5])])])];;
+*)
+let h = match L.hd ast_def_type with | TypeDeclaration l -> l;;
+
+
+
+let checkTypeIsRecursive tylist =
+        let lstTy, lst = L.split tylist in
+        let rec forOne result lstTy tty = 
+                let trv a l = L.exists (fun e -> e=a) l in
+                if not result then
+                        match tty with
+                        | TSum_type l -> L.exists (forOne result lstTy) l
+                        | TType_variant (a,b) -> if  trv a lstTy then true  else  forOne result (a::lstTy) b
+                        | TTuple l -> L.exists (forOne result lstTy) l
+                        | TLink tty -> if  trv tty lstTy then true else false 
+                        | TInt   -> result
+                        | TFloat -> result
+                        | TChar -> result
+                        | TString -> result
+                        | TBool -> result
+                        | Tlist t -> forOne result lstTy t
+                        | TRecord l -> let n,t = L.split l in L.exists (forOne result (lstTy@n)) t
+                else false
+        in L.exists (forOne false lstTy) lst;;
+
+                                
+
 
 
 let ast_record = [TypeDeclaration [("enregistrement", TRecord [("a", TInt); ("b", TString); ("c", TChar)])];
@@ -161,6 +197,8 @@ let base_type_liste_record_to_class tlist =
                 | TTuple l       -> L.flatten (L.map (func n)  l)
                 | _ -> failwith "à finir" in
         L.flatten (L.map (fun (n,t) -> func n t) tlist)
+
+
 
 
 
@@ -323,28 +361,11 @@ let objexpre_of_camlexpre e = This;;
          * 1. Faire un dictionnaire des types présents, de sorte que les Tlink renvoient vers quelques chose
          *      OK
          *
-         * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme.
-         *      Exemple :
-                 *      type expre = 
-                         *      | Int of int
-                         *      | Plus  of expre * expre
-                         *      | Moins of expre * expre
-                         *
-                         *      Deviens, en pseudo code objet :
-                                 *     Class expre =
-                                         *     currentValue
-                                         *
-                                 *    Class Int inherit expre
-                                 *     value of int
-                                 *
-                                 *     Class Plus inherit expre
-                                 *     value1 of expre
-                                 *     value2 of expre
-                                 *
-                                 *     Class Moins inherit expre
-                                 *     value1 of expre
-                                 *     value2 of expre
-                  * ---==============OK-==============---   
+         * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme. ATTENTION : les types sommes récursif sont interdits pour le moment !!!
+         *
+         *                      On va tranformer les types sommes non récursifs en record éclaté avec enums séparés.
+         *                      Ce sera ainsi le générateur de langage qui se débrouillera avec ça
+         *                        * ---==============OK-==============---   
                                 
          * 3. Dès qu'un record est créé, on créé les objets correspondants
          *      TODO
@@ -401,6 +422,39 @@ let objexpre_of_camlexpre e = This;;
                  * La présence de constante ou de précision concernant l'élément, genre un::"deux"::queue
                 - Si c'est un type somme, on va jouer avec des isInstanceOf : Si on doit matcher Plus(Moins(a,b),c) on va faire
                   IsInstanceOf(obj) == Plus and IsInstanceOf(obj.value1) == Moins et dans la fonction, obj.value1.value1 = a, obj.value1.value2 = b, obj.value2 = c
+
+
+
+
+
+
+
+                  -------============ REBUS =============----------
+
+                  On ne gère plus les types sommes récursif, trop compliqué pour le moment !
+
+                           * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme.
+         *      Exemple :
+                 *      type expre = 
+                         *      | Int of int
+                         *      | Plus  of expre * expre
+                         *      | Moins of expre * expre
+                         *
+                         *      Deviens, en pseudo code objet :
+                                 *     Class expre =
+                                         *     currentValue
+                                         *
+                                 *    Class Int inherit expre
+                                 *     value of int
+                                 *
+                                 *     Class Plus inherit expre
+                                 *     value1 of expre
+                                 *     value2 of expre
+                                 *
+                                 *     Class Moins inherit expre
+                                 *     value1 of expre
+                                 *     value2 of expre
+                  * ---==============OK-==============---   
 
          * *)
 

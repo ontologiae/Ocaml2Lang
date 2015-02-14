@@ -220,8 +220,8 @@ let object_of_type t =
 
 
 
-let record_of_sum_type l =
-        let liste_tag = 
+let record_of_sum_type t =
+        let liste_tag l = 
                 let ll = L.map (fun (TType_variant (n,_)) -> n) l in
                 PropertyDef("tag", Enum ll) in
         let rec construit_nom = function
@@ -231,9 +231,13 @@ let record_of_sum_type l =
                 | TFloat  -> "val_float"
                 | TLink n -> "val_"^n
                 | TTuple l -> String.concat "_" (L.map construit_nom l) in
-        let listeTypes = L.map (fun (TType_variant (_,t)) -> t) l |> L.unique in
-        let props = L.map (fun t -> PropertyDef(construit_nom t, from_ty t) ) listeTypes in
-        liste_tag::props
+        let listeTypes l = L.map (fun (TType_variant (_,t)) -> t) l |> L.unique in
+        let props l = L.map (fun t -> PropertyDef(construit_nom t, from_ty t) ) (listeTypes l) in
+        let test_type_sum tt = match tt with
+                                | TSum_type l -> liste_tag l, l
+                                | _           -> failwith "Not a sum type" in
+        let lsttag, l = test_type_sum t in
+        lsttag::(props l)
 
 
 
@@ -305,7 +309,7 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
 
 
         | TypeDeclaration ([nom, TRecord lst])   -> RecordDef(nom, None,  L.map (fun (n,t) -> PropertyDef(n, from_ty t)) lst)
-        | TypeDeclaration ([nom, TSum_type lst]) -> RecordDef(nom, None, record_of_sum_type lst)
+        | TypeDeclaration ([nom, TSum_type lst]) -> RecordDef(nom, None, L.map record_of_sum_type lst)
 
         | TypeDeclaration l     -> failwith "TODO TypeDeclaration"
         | ConstructionType(n,el) -> print_endline "TODO ConstructionType" ; Nop
@@ -359,7 +363,7 @@ let objexpre_of_camlexpre e = This;;
          *
          *
          * 1. Faire un dictionnaire des types présents, de sorte que les Tlink renvoient vers quelques chose
-         *      OK
+         *      OK : dico_of_camlexpre
          *
          * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme. ATTENTION : les types sommes récursif sont interdits pour le moment !!!
          *

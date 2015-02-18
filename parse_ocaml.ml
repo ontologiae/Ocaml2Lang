@@ -12,10 +12,12 @@ open Parsetree
 
 let i,ml = Cmt_format.read "tst3.cmt";;
 
+
 let get_ast s = let structur = BatOption.get s in
                 match structur.Cmt_format.cmt_annots with
                 | Cmt_format.Implementation st -> st
                 | _                            -> failwith "pas d'annotation";;
+
 
 (*********************
  *
@@ -976,6 +978,13 @@ and type_from_ast_type typ =
 let read_cmt file = let i,f = Cmt_format.read file in f |> get_ast |> to_object_language
 
 
+
+let cmtis, cmts = L.map (fun i ->  let si = string_of_int i in 
+                            let nom = "tst"^si^".cmt" in
+                            let i,ml = Cmt_format.read nom in
+                            i, get_ast ml |> to_object_language
+                            ) 
+[1;2;3;4;5;6;7;8;9;10;11;12;14] |> L.split;;
 
 
 

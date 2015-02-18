@@ -7,7 +7,9 @@ open Parse_ocaml;;
 
 type name = string
 
-type dictionnaire_types = { dico : (name, Parse_ocaml.ty) BatHashtbl.t }
+type dictionnaire_types_input = { dico : (name, Parse_ocaml.ty) BatHashtbl.t }
+type dictionnaire_types_output_type = { dico : (name, Parse_ocaml.ty) BatHashtbl.t }
+
 
 
 type typ =
@@ -17,10 +19,13 @@ type typ =
         | IntTyp
         | BoolTyp
         | ArrayTyp
-        | RecordTyp of typ list
+        | RecordTyp of (name * typ) list
         | Enum of name list
         | Portnawak
         | TODO
+
+let dictionnaire_types_output  = H.create 1;;
+
 
 let to_typ = function
         | "string" -> StringTyp
@@ -37,7 +42,8 @@ let rec from_ty = function
         | TInt     -> IntTyp
         | TChar    -> CharTyp
         | TBool    -> BoolTyp
-        | TTuple l -> RecordTyp (L.map from_ty l)
+        | TTuple l -> RecordTyp (L.mapi (fun i -> fun t -> "val_"^(string_of_int i), from_ty t) l)
+        | TLink  t -> (match H.find_all dictionnaire_types_output t  with [] -> Portnawak | l -> L.hd l) 
         | _        -> Portnawak
        
 
@@ -105,6 +111,16 @@ let ast_def_type = [TypeDeclaration
                                  )
                                 ]
                    ];;
+
+let def_type_sum_non_recursive =
+        [("expr", 
+                                        TSum_type [TType_variant ("Int", TInt); 
+                                                   TType_variant ("Plus", TTuple [TString; TInt]); 
+                                                   TType_variant ("Moins", TTuple [TChar; TBool])
+                                                  ]
+                                 )
+        ];;
+
 
 (*Let (NonRec, [Var "a"], TLink "expr", [ConstructionType ("Moins",
 [ConstructionType ("Plus", [ConstructionType ("Int", [Int 6]); ConstructionType
@@ -220,8 +236,11 @@ let object_of_type t =
 
 
 
-let record_of_sum_type t =
-        let liste_tag l = 
+
+(** Construit un type record à partir d'un type somme non récursif *)        
+let record_of_sum_type l =
+        (*TODO : mettre des noms de variable fonction des noms d'enums*)
+        let liste_tag = 
                 let ll = L.map (fun (TType_variant (n,_)) -> n) l in
                 PropertyDef("tag", Enum ll) in
         let rec construit_nom = function
@@ -229,16 +248,16 @@ let record_of_sum_type t =
                 | TChar   -> "val_char"
                 | TString -> "val_string"
                 | TFloat  -> "val_float"
+                | TBool   -> "val_bool"
                 | TLink n -> "val_"^n
-                | TTuple l -> String.concat "_" (L.map construit_nom l) in
-        let listeTypes l = L.map (fun (TType_variant (_,t)) -> t) l |> L.unique in
-        let props l = L.map (fun t -> PropertyDef(construit_nom t, from_ty t) ) (listeTypes l) in
-        let test_type_sum tt = match tt with
-                                | TSum_type l -> liste_tag l, l
-                                | _           -> failwith "Not a sum type" in
-        let lsttag, l = test_type_sum t in
-        lsttag::(props l)
-
+                | TTuple l -> String.concat "_" (L.map construit_nom l) 
+                | Tlist  t  -> "val_list"^(construit_nom t) 
+                | TRecord t -> failwith "record : TODO" 
+                | _         -> failwith "record_of_sum_type : type non géré " in
+        let listeTypes = L.map (fun (TType_variant (_,t)) -> t) l |> L.unique in
+        let props = L.map (fun t -> PropertyDef(construit_nom t, from_ty t) ) listeTypes in
+        let res = liste_tag::props in
+        res
 
 
 (*Construit la liste des fonction du code*)
@@ -298,8 +317,8 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
         | Sequence(a,b)         -> SequenceList [to_expre a; to_expre b]
         | Fun (e, ty, e2)       -> failwith "Fun pas encore géré, Hors Let"
         | TryWith (e1,n,e2)     -> TryWith (to_expre e1, n, to_expre e2)
-        | RecordElemAffect l    -> failwith "Record elem affect non géré"
-        | PatternMatch(matched, pats) -> failwith "c'est là qu'on va s'amuser…"
+        | RecordElemAffect l    -> print_endline "Record elem affect non géré" ; Nop
+        | PatternMatch(matched, pats) -> print_endline "c'est là qu'on va s'amuser…" ; Nop 
         | Apply(name, expre)    -> Funcall(name, [to_expre expre])
 
 
@@ -308,10 +327,17 @@ let rec to_expre (e : Parse_ocaml.expre) = match e with
         | ApplyExpre(e1,explst) -> failwith "ApplyExpre : C'est quoi ??"
 
 
-        | TypeDeclaration ([nom, TRecord lst])   -> RecordDef(nom, None,  L.map (fun (n,t) -> PropertyDef(n, from_ty t)) lst)
-        | TypeDeclaration ([nom, TSum_type lst]) -> RecordDef(nom, None, L.map record_of_sum_type lst)
+        | TypeDeclaration ([nom, TRecord lst])   -> let rest  = L.map (fun (n,t) -> PropertyDef(n, from_ty t)) lst in
+                                                    let tydef = RecordTyp (L.map (fun (n,t) -> (n, from_ty t)) lst) in
+                                                    let fin   = RecordDef(nom, None, rest ) in
+                                                    let _     = H.add dictionnaire_types_output nom tydef in
+                                                    fin
 
-        | TypeDeclaration l     -> failwith "TODO TypeDeclaration"
+        | TypeDeclaration ([nom, TSum_type lst]) -> let fin   = RecordDef(nom, None, record_of_sum_type lst ) in
+                                                    let tydef = RecordTyp (L.map (fun (PropertyDef(n,t)) -> (n,t)) (record_of_sum_type lst)) in
+                                                    let _     = H.add dictionnaire_types_output nom tydef in
+                                                    fin
+        | TypeDeclaration l     -> print_endline "TODO TypeDeclaration" ; Nop
         | ConstructionType(n,el) -> print_endline "TODO ConstructionType" ; Nop
         | Pas_Encore_gere       -> Nop
         (*| _     -> failwith "to_expre : pas encore géré"*)
@@ -363,7 +389,7 @@ let objexpre_of_camlexpre e = This;;
          *
          *
          * 1. Faire un dictionnaire des types présents, de sorte que les Tlink renvoient vers quelques chose
-         *      OK : dico_of_camlexpre
+         *      OK
          *
          * 2. Dès qu'un type somme est détecté, on créé les objets de ce type somme. ATTENTION : les types sommes récursif sont interdits pour le moment !!!
          *

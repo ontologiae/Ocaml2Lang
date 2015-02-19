@@ -372,7 +372,7 @@ and untype_type_declaration decl  =
         let nom = decl.typ_name.txt in
       (*  let on_garde = decl.typ_params, ( List.map (fun (ct1, ct2, loc) -> (untype_core_type ct1, untype_core_type ct2, loc)) decl.typ_cstrs),*)
     match decl.typ_kind with
-    | Ttype_abstract ->  nom, Inconnu
+    | Ttype_abstract ->  nom, O.map_default untype_core_type Inconnu decl.typ_manifest
     | Ttype_variant list ->
                     let fun_param_variant record =
                                                      let parametre_variant = L.map untype_core_type record.cd_args in
